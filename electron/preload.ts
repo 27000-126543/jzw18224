@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   dialog: {
     openImage: (): Promise<string | null> => ipcRenderer.invoke('dialog:openImage'),
+    openImages: (): Promise<string[]> => ipcRenderer.invoke('dialog:openImages'),
     readImageFile: (filePath: string): Promise<string | null> =>
       ipcRenderer.invoke('dialog:readImageFile', filePath),
     saveFile: (params: {

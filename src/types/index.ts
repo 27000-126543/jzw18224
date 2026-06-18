@@ -56,6 +56,7 @@ export interface InternalAPI {
 
 export interface DialogAPI {
   openImage: () => Promise<string | null>
+  openImages: () => Promise<string[]>
   readImageFile: (filePath: string) => Promise<string | null>
   saveFile: (params: {
     defaultName: string

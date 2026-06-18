@@ -8,7 +8,20 @@ interface Props {
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void
 }
 
-type ExportFormat = 'css' | 'css-classes' | 'scss' | 'less' | 'stylus' | 'tailwind' | 'svg' | 'json'
+type ExportFormat =
+  | 'css'
+  | 'css-theme'
+  | 'css-classes'
+  | 'scss'
+  | 'less'
+  | 'stylus'
+  | 'tailwind'
+  | 'styled-components'
+  | 'js-theme'
+  | 'ts-theme'
+  | 'design-tokens'
+  | 'svg'
+  | 'json'
 
 const slug = (s: string) =>
   s.toLowerCase()
@@ -243,6 +256,206 @@ const generateTailwind = (palette: ColorPalette): string => {
   return lines.join('\n')
 }
 
+const generateCssTheme = (palette: ColorPalette, prefix: string = 'color'): string => {
+  const lines: string[] = []
+  const paletteSlug = slug(palette.name)
+
+  lines.push(`/* ========================================`)
+  lines.push(`   Theme: ${palette.name}`)
+  lines.push(`   Semantic CSS Variables`)
+  lines.push(`   Generated: ${new Date().toISOString()}`)
+  lines.push(`   ======================================== */`)
+  lines.push('')
+  lines.push(':root {')
+  lines.push('')
+  lines.push('  /* ========== Brand Colors ========== */')
+  lines.push('')
+
+  palette.colors.forEach((c: PaletteColor, i: number) => {
+    const name = getVarName(palette.name, c.name, i)
+    const rgb = hexToRgb(c.hex)
+    if (c.note) lines.push(`  /* ${c.note} */`)
+    lines.push(`  --${prefix}-${name}: ${c.hex};`)
+    if (rgb) {
+      lines.push(`  --${prefix}-${name}-rgb: ${rgb.r} ${rgb.g} ${rgb.b};`)
+    }
+  })
+
+  lines.push('')
+  lines.push('  /* ========== Semantic Tokens ========== */')
+  lines.push('')
+
+  const primary = palette.colors[0]
+  const secondary = palette.colors[1] || palette.colors[0]
+  const success = palette.colors.find(c => c.name?.toLowerCase().includes('success')) || palette.colors[palette.colors.length - 1]
+  const warning = palette.colors.find(c => c.name?.toLowerCase().includes('warning')) || palette.colors[Math.floor(palette.colors.length / 2)]
+  const error = palette.colors.find(c => c.name?.toLowerCase().includes('error')) || palette.colors[Math.floor(palette.colors.length / 3)]
+  const bg = palette.colors.find(c => c.name?.toLowerCase().includes('bg') || c.name?.toLowerCase().includes('background')) || palette.colors[palette.colors.length - 1]
+  const text = palette.colors.find(c => c.name?.toLowerCase().includes('text') || c.name?.toLowerCase().includes('foreground')) || palette.colors[0]
+
+  lines.push(`  --${paletteSlug}-primary: var(--${prefix}-${getVarName(palette.name, primary?.name, 0)});`)
+  lines.push(`  --${paletteSlug}-secondary: var(--${prefix}-${getVarName(palette.name, secondary?.name, 1)});`)
+  lines.push(`  --${paletteSlug}-success: var(--${prefix}-${getVarName(palette.name, success?.name, palette.colors.length - 1)});`)
+  lines.push(`  --${paletteSlug}-warning: var(--${prefix}-${getVarName(palette.name, warning?.name, Math.floor(palette.colors.length / 2))});`)
+  lines.push(`  --${paletteSlug}-error: var(--${prefix}-${getVarName(palette.name, error?.name, Math.floor(palette.colors.length / 3))});`)
+  lines.push(`  --${paletteSlug}-background: var(--${prefix}-${getVarName(palette.name, bg?.name, palette.colors.length - 1)});`)
+  lines.push(`  --${paletteSlug}-text: var(--${prefix}-${getVarName(palette.name, text?.name, 0)});`)
+
+  lines.push('')
+  lines.push('}')
+  lines.push('')
+  lines.push('/* ========== Usage Examples ==========')
+  lines.push('')
+  lines.push(`  .btn-primary {`)
+  lines.push(`    background: var(--${paletteSlug}-primary);`)
+  lines.push(`    color: white;`)
+  lines.push(`  }`)
+  lines.push('')
+  lines.push(`  .text-success {`)
+  lines.push(`    color: var(--${paletteSlug}-success);`)
+  lines.push(`  }`)
+  lines.push('')
+  lines.push(`  .bg-app {`)
+  lines.push(`    background: var(--${paletteSlug}-background);`)
+  lines.push(`    color: var(--${paletteSlug}-text);`)
+  lines.push(`  }`)
+  lines.push('')
+  lines.push('*/')
+
+  return lines.join('\n')
+}
+
+const generateStyledComponents = (palette: ColorPalette): string => {
+  const paletteName = toKebabCase(palette.name).replace(/-/g, '')
+  const camelName = paletteName.charAt(0).toUpperCase() + paletteName.slice(1)
+
+  const lines: string[] = []
+  lines.push(`// ========================================`)
+  lines.push(`// Theme: ${palette.name}`)
+  lines.push(`// Styled-components / Emotion Theme`)
+  lines.push(`// Generated: ${new Date().toISOString()}`)
+  lines.push(`// ========================================`)
+  lines.push('')
+  lines.push(`export const ${camelName}Theme = {`)
+  lines.push(`  name: '${palette.name}',`)
+  lines.push(`  colors: {`)
+
+  palette.colors.forEach((c: PaletteColor, i: number) => {
+    const name = getVarName(palette.name, c.name, i).replace(/-([a-z])/g, (g) => g[1].toUpperCase())
+    const comma = i < palette.colors.length - 1 ? ',' : ''
+    lines.push(`    ${name}: '${c.hex}',${comma}${c.note ? ` // ${c.note}` : ''}`)
+  })
+
+  lines.push(`  },`)
+  lines.push(`}`)
+  lines.push('')
+  lines.push(`export type ${camelName}Theme = typeof ${camelName}Theme`)
+  lines.push('')
+  lines.push(`// Usage with styled-components:`)
+  lines.push(`//   import { ${camelName}Theme } from './theme'`)
+  lines.push(`//   <ThemeProvider theme={${camelName}Theme}>...</ThemeProvider>`)
+  lines.push('//   const Button = styled.button`color: ${props => props.theme.colors.primary};`')
+
+  return lines.join('\n')
+}
+
+const generateJsTheme = (palette: ColorPalette): string => {
+  const lines: string[] = []
+  lines.push(`// ========================================`)
+  lines.push(`// Theme: ${palette.name}`)
+  lines.push(`// JavaScript Theme Object`)
+  lines.push(`// Generated: ${new Date().toISOString()}`)
+  lines.push(`// ========================================`)
+  lines.push('')
+  lines.push(`export const colors = {`)
+
+  palette.colors.forEach((c: PaletteColor, i: number) => {
+    const name = getVarName(palette.name, c.name, i).replace(/-([a-z])/g, (g) => g[1].toUpperCase())
+    const comma = i < palette.colors.length - 1 ? ',' : ''
+    lines.push(`  ${name}: '${c.hex}',${comma}${c.note ? ` // ${c.note}` : ''}`)
+  })
+
+  lines.push(`}`)
+  lines.push('')
+  lines.push(`export const theme = {`)
+  lines.push(`  primary: colors.${getVarName(palette.name, palette.colors[0]?.name, 0).replace(/-([a-z])/g, (g) => g[1].toUpperCase())},`)
+  lines.push(`  paletteName: '${palette.name}',`)
+  lines.push(`  colors,`)
+  lines.push(`}`)
+  lines.push('')
+  lines.push(`export default theme`)
+
+  return lines.join('\n')
+}
+
+const generateTsTheme = (palette: ColorPalette): string => {
+  const lines: string[] = []
+  lines.push(`// ========================================`)
+  lines.push(`// Theme: ${palette.name}`)
+  lines.push(`// TypeScript Theme Object`)
+  lines.push(`// Generated: ${new Date().toISOString()}`)
+  lines.push(`// ========================================`)
+  lines.push('')
+  lines.push(`export interface ThemeColors {`)
+
+  palette.colors.forEach((c: PaletteColor, i: number) => {
+    const name = getVarName(palette.name, c.name, i).replace(/-([a-z])/g, (g) => g[1].toUpperCase())
+    lines.push(`  ${name}: string`)
+  })
+
+  lines.push(`}`)
+  lines.push('')
+  lines.push(`export interface Theme {`)
+  lines.push(`  name: string`)
+  lines.push(`  description?: string`)
+  lines.push(`  colors: ThemeColors`)
+  lines.push(`}`)
+  lines.push('')
+  lines.push(`export const colors: ThemeColors = {`)
+
+  palette.colors.forEach((c: PaletteColor, i: number) => {
+    const name = getVarName(palette.name, c.name, i).replace(/-([a-z])/g, (g) => g[1].toUpperCase())
+    const comma = i < palette.colors.length - 1 ? ',' : ''
+    lines.push(`  ${name}: '${c.hex}',${comma}${c.note ? ` // ${c.note}` : ''}`)
+  })
+
+  lines.push(`}`)
+  lines.push('')
+  lines.push(`export const theme: Theme = {`)
+  lines.push(`  name: '${palette.name}',`)
+  lines.push(`  ${palette.description ? `description: '${palette.description}',` : ''}`)
+  lines.push(`  colors,`)
+  lines.push(`}`)
+  lines.push('')
+  lines.push(`export default theme`)
+
+  return lines.join('\n')
+}
+
+const generateDesignTokens = (palette: ColorPalette): string => {
+  const tokens: Record<string, any> = {
+    $schema: 'https://design-tokens.github.io/community-group/format/v1/schema.json',
+    name: palette.name,
+    description: palette.description || '',
+    version: '1.0.0',
+    createdAt: new Date(palette.createdAt).toISOString(),
+    updatedAt: new Date(palette.updatedAt).toISOString(),
+    color: {},
+  }
+
+  palette.colors.forEach((c: PaletteColor, i: number) => {
+    const name = c.name || `color-${i + 1}`
+    const key = toKebabCase(name).replace(/-([a-z])/g, (g) => g[1].toUpperCase())
+    tokens.color[key] = {
+      $value: c.hex,
+      $type: 'color',
+      $description: c.note || '',
+    }
+  })
+
+  return JSON.stringify(tokens, null, 2)
+}
+
 export default function ExportTab({ showToast }: Props) {
   const { palettes, activePaletteId, setActivePalette } = useAppStore()
   const [format, setFormat] = useState<ExportFormat>('css')
@@ -256,11 +469,16 @@ export default function ExportTab({ showToast }: Props) {
 
     switch (format) {
       case 'css': return generateCss(activePalette, cssPrefix)
+      case 'css-theme': return generateCssTheme(activePalette, cssPrefix)
       case 'css-classes': return generateCssClasses(activePalette, cssPrefix)
       case 'scss': return generateScss(activePalette)
       case 'less': return generateLess(activePalette)
       case 'stylus': return generateStylus(activePalette)
       case 'tailwind': return generateTailwind(activePalette)
+      case 'styled-components': return generateStyledComponents(activePalette)
+      case 'js-theme': return generateJsTheme(activePalette)
+      case 'ts-theme': return generateTsTheme(activePalette)
+      case 'design-tokens': return generateDesignTokens(activePalette)
       case 'svg': return generateSvg(activePalette)
       case 'json': return generateJson(activePalette)
       default: return ''
@@ -292,11 +510,16 @@ export default function ExportTab({ showToast }: Props) {
 
     const filterMap: Record<ExportFormat, { name: string; extensions: string[] }> = {
       css: { name: 'CSS', extensions: ['css'] },
+      'css-theme': { name: 'CSS', extensions: ['css'] },
       'css-classes': { name: 'CSS', extensions: ['css'] },
       scss: { name: 'SCSS', extensions: ['scss'] },
       less: { name: 'LESS', extensions: ['less'] },
       stylus: { name: 'Stylus', extensions: ['styl'] },
       tailwind: { name: 'JavaScript', extensions: ['js'] },
+      'styled-components': { name: 'TypeScript', extensions: ['ts'] },
+      'js-theme': { name: 'JavaScript', extensions: ['js'] },
+      'ts-theme': { name: 'TypeScript', extensions: ['ts'] },
+      'design-tokens': { name: 'JSON', extensions: ['json'] },
       svg: { name: 'SVG', extensions: ['svg'] },
       json: { name: 'JSON', extensions: ['json'] },
     }
@@ -316,11 +539,16 @@ export default function ExportTab({ showToast }: Props) {
     const name = slug(palette.name) || 'palette'
     const extMap: Record<ExportFormat, string> = {
       css: 'css',
+      'css-theme': 'css',
       'css-classes': 'css',
       scss: 'scss',
       less: 'less',
       stylus: 'styl',
       tailwind: 'js',
+      'styled-components': 'ts',
+      'js-theme': 'js',
+      'ts-theme': 'ts',
+      'design-tokens': 'json',
       svg: 'svg',
       json: 'json',
     }
@@ -328,34 +556,49 @@ export default function ExportTab({ showToast }: Props) {
   }
 
   const formatLabels: Record<ExportFormat, string> = {
-    css: 'CSS Variables',
-    'css-classes': 'CSS Classes',
+    css: 'CSS 变量',
+    'css-theme': 'CSS 主题',
+    'css-classes': 'CSS 类',
     scss: 'SCSS',
     less: 'Less',
     stylus: 'Stylus',
     tailwind: 'Tailwind',
-    svg: 'SVG',
+    'styled-components': 'Styled',
+    'js-theme': 'JS 主题',
+    'ts-theme': 'TS 主题',
+    'design-tokens': 'Tokens',
+    svg: 'SVG 色板',
     json: 'JSON',
   }
 
   const formatOptions: { id: ExportFormat; label: string; icon: string }[] = [
     { id: 'css', label: 'CSS 变量', icon: '🎨' },
+    { id: 'css-theme', label: 'CSS 主题', icon: '🌟' },
     { id: 'css-classes', label: 'CSS 类', icon: '✨' },
     { id: 'scss', label: 'SCSS', icon: '💅' },
-    { id: 'less', label: 'Less', icon: '�' },
+    { id: 'less', label: 'Less', icon: '📐' },
     { id: 'stylus', label: 'Stylus', icon: '✒️' },
     { id: 'tailwind', label: 'Tailwind', icon: '🌊' },
+    { id: 'styled-components', label: 'Styled', icon: '💄' },
+    { id: 'js-theme', label: 'JS 主题', icon: '📜' },
+    { id: 'ts-theme', label: 'TS 主题', icon: '📘' },
+    { id: 'design-tokens', label: 'Tokens', icon: '🔷' },
     { id: 'svg', label: 'SVG 色板', icon: '🖼️' },
     { id: 'json', label: 'JSON', icon: '📄' },
   ]
 
   const formatDescription: Record<ExportFormat, string> = {
     css: '现代 CSS 自定义属性，适用于所有现代浏览器，通过 var() 引用',
+    'css-theme': '语义化 CSS 主题变量，含 primary/secondary/success/warning/error 等语义 Token',
     'css-classes': '开箱即用的 CSS 工具类，直接在 HTML 中使用 class 名称',
     scss: 'Sass/SCSS 变量和颜色 Map，支持 map-get() 函数访问',
     less: 'Less 预处理器变量，兼容 Less.js 构建环境',
     stylus: 'Stylus 变量语法，简洁的缩进式风格',
     tailwind: 'Tailwind CSS 配置片段，可直接合并到 tailwind.config.js',
+    'styled-components': 'styled-components / emotion 主题对象，配合 ThemeProvider 使用',
+    'js-theme': 'JavaScript 主题对象，可直接 import 到任意前端项目',
+    'ts-theme': 'TypeScript 主题对象，带完整类型定义和接口声明',
+    'design-tokens': '符合 W3C Design Tokens 标准的 JSON 格式，跨工具协作',
     svg: '可视化 SVG 色板文件，可嵌入设计稿或在线预览',
     json: '结构化 JSON 数据，适合程序读取和跨工具使用',
   }
@@ -391,7 +634,7 @@ export default function ExportTab({ showToast }: Props) {
             )}
           </div>
 
-          {(format === 'css' || format === 'css-classes') && (
+          {(format === 'css' || format === 'css-theme' || format === 'css-classes') && (
             <div className="form-group">
               <label className="form-label">CSS 变量 / 类名 前缀</label>
               <input

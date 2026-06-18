@@ -548,6 +548,19 @@ ipcMain.handle('dialog:openImage', async () => {
   return null
 })
 
+ipcMain.handle('dialog:openImages', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] },
+    ],
+  })
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths
+  }
+  return []
+})
+
 ipcMain.handle('dialog:readImageFile', async (_e, filePath: string) => {
   try {
     const buf = fs.readFileSync(filePath)

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { extractColorsFromImage, type ExtractedColor, generateAnalogous, generateComplementary, generateTriadic, generateMonochromatic } from '../utils/colorUtils'
 import type { ExtractedPalette } from '../types'
@@ -15,7 +15,6 @@ export default function ImageExtractorTab({ showToast }: Props) {
     setCurrentColor,
     palettes,
     activePaletteId,
-    addColorToPalette,
     addColorsToPalette,
     addExtractedPalette,
     extractedPalettes,
@@ -25,76 +24,31 @@ export default function ImageExtractorTab({ showToast }: Props) {
     setActivePalette,
   } = useAppStore()
 
-  const [imageUrl, setImageUrl] = useState<string | null>(null)
-  const [imageName, setImageName] = useState<string>('')
-  const [extractedColors, setExtractedColors] = useState<ExtractedColor[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [colorCount, setColorCount] = useState(8)
   const [quality, setQuality] = useState(5)
   const [selectedColor, setSelectedColor] = useState<string | null>(null)
   const [schemeType, setSchemeType] = useState<SchemeType>('analogous')
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [imageSize, setImageSize] = useState<string>('')
-  const [showHistory, setShowHistory] = useState(true)
-  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [selectedPaletteTarget, setSelectedPaletteTarget] = useState<string | null>(null)
 
-  const doExtract = useCallback((url: string, name: string) => {
-    const img = new Image()
-    img.onload = () => {
-      setImageUrl(url)
-      setImageName(name)
-      setImageSize(`${img.width} × ${img.height}`)
+  const selectedItem = useMemo(() => {
+    return extractedPalettes.find(p => p.id === selectedId) || null
+  }, [extractedPalettes, selectedId])
 
-      const maxWidth = 800
-      const scale = Math.min(1, maxWidth / img.width)
-      const w = Math.round(img.width * scale)
-      const h = Math.round(img.height * scale)
+  const selectedExtractedColors: ExtractedColor[] = useMemo(() => {
+    if (!selectedItem) return []
+    return selectedItem.colors.map((hex, i) => ({
+      hex,
+      percentage: Math.max(5, 100 - i * 10),
+      count: 0,
+    }))
+  }, [selectedItem])
 
-      const canvas = canvasRef.current
-      if (!canvas) return
-      canvas.width = w
-      canvas.height = h
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-      ctx.drawImage(img, 0, 0, w, h)
-
-      const imageData = ctx.getImageData(0, 0, w, h)
-      const colors = extractColorsFromImage(imageData, colorCount, quality)
-      setExtractedColors(colors)
-      setSelectedColor(colors[0]?.hex || null)
-
-      const hexColors = colors.map(c => c.hex)
-      const extracted = addExtractedPalette(
-        name.replace(/\.[^/.]+$/, ''),
-        url,
-        name,
-        hexColors
-      )
-      setSelectedHistoryId(extracted.id)
-      showToast(`成功提取 ${colors.length} 种主色调`, 'success')
-    }
-    img.src = url
-  }, [colorCount, quality, addExtractedPalette, showToast])
-
-  const handleFileSelect = useCallback(async (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      showToast('请选择图片文件', 'error')
-      return
-    }
-    const url = URL.createObjectURL(file)
-    doExtract(url, file.name)
-  }, [doExtract, showToast])
-
-  const handleFilesSelect = useCallback(async (files: FileList) => {
-    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'))
-    if (imageFiles.length === 0) {
-      showToast('请选择图片文件', 'error')
-      return
-    }
-
-    for (let i = 0; i < imageFiles.length; i++) {
-      const file = imageFiles[i]
-      const url = URL.createObjectURL(file)
+  const doExtractForFile = useCallback(async (filePath: string, isDataUrl: boolean = false): Promise<ExtractedPalette | null> => {
+    return new Promise((resolve) => {
       const img = new Image()
       img.onload = () => {
         const maxWidth = 800
@@ -103,44 +57,83 @@ export default function ImageExtractorTab({ showToast }: Props) {
         const h = Math.round(img.height * scale)
 
         const canvas = canvasRef.current
-        if (!canvas) return
+        if (!canvas) { resolve(null); return }
         canvas.width = w
         canvas.height = h
         const ctx = canvas.getContext('2d')
-        if (!ctx) return
+        if (!ctx) { resolve(null); return }
         ctx.drawImage(img, 0, 0, w, h)
 
         const imageData = ctx.getImageData(0, 0, w, h)
         const colors = extractColorsFromImage(imageData, colorCount, quality)
         const hexColors = colors.map(c => c.hex)
-        addExtractedPalette(
-          file.name.replace(/\.[^/.]+$/, ''),
-          url,
-          file.name,
+
+        const name = isDataUrl
+          ? filePath.split('/').pop() || 'image'
+          : filePath.split(/[/\\]/).pop() || 'image'
+
+        const extracted = addExtractedPalette(
+          name.replace(/\.[^/.]+$/, ''),
+          img.src,
+          name,
           hexColors
         )
+        resolve(extracted)
       }
-      img.src = url
+      img.onerror = () => resolve(null)
+      img.src = isDataUrl ? filePath : filePath
+    })
+  }, [colorCount, quality, addExtractedPalette])
+
+  const handleFilesSelect = useCallback(async (files: FileList) => {
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'))
+    if (imageFiles.length === 0) {
+      showToast('请选择图片文件', 'error')
+      return
     }
 
-    showToast(`已导入 ${imageFiles.length} 张图片并提取主色`, 'success')
+    setIsProcessing(true)
+    let count = 0
 
-    if (imageFiles.length === 1) {
-      handleFileSelect(imageFiles[0])
+    for (const file of imageFiles) {
+      const url = URL.createObjectURL(file)
+      await doExtractForFile(url, true)
+      count++
     }
-  }, [colorCount, quality, addExtractedPalette, handleFileSelect, showToast])
+
+    setIsProcessing(false)
+    showToast(`成功提取 ${count} 张图片的主色调`, 'success')
+
+    if (extractedPalettes.length > 0) {
+      setSelectedId(extractedPalettes[0].id)
+      setSelectedColor(extractedPalettes[0].colors[0] || null)
+    }
+  }, [doExtractForFile, showToast, extractedPalettes])
 
   const openFileDialog = async () => {
     const api = window.electronAPI
-    if (api?.dialog) {
-      const filePath = await api.dialog.openImage()
-      if (filePath) {
-        const dataUrl = await api.dialog.readImageFile(filePath)
-        if (dataUrl) {
-          const parts = filePath.split(/[/\\]/)
-          const name = parts[parts.length - 1] || filePath
-          doExtract(dataUrl, name)
+    if (api?.dialog?.openImages) {
+      const filePaths = await api.dialog.openImages()
+      if (filePaths && filePaths.length > 0) {
+        setIsProcessing(true)
+        let count = 0
+        for (const filePath of filePaths) {
+          const dataUrl = await api.dialog.readImageFile(filePath)
+          if (dataUrl) {
+            await doExtractForFile(dataUrl, true)
+            count++
+          }
         }
+        setIsProcessing(false)
+        showToast(`成功提取 ${count} 张图片的主色调`, 'success')
+
+        setTimeout(() => {
+          const latest = useAppStore.getState().extractedPalettes[0]
+          if (latest) {
+            setSelectedId(latest.id)
+            setSelectedColor(latest.colors[0] || null)
+          }
+        }, 50)
       }
     } else {
       const input = document.createElement('input')
@@ -150,11 +143,7 @@ export default function ImageExtractorTab({ showToast }: Props) {
       input.onchange = (e) => {
         const files = (e.target as HTMLInputElement).files
         if (files && files.length > 0) {
-          if (files.length === 1) {
-            handleFileSelect(files[0])
-          } else {
-            handleFilesSelect(files)
-          }
+          handleFilesSelect(files)
         }
       }
       input.click()
@@ -166,49 +155,13 @@ export default function ImageExtractorTab({ showToast }: Props) {
     setIsDragging(false)
     const files = e.dataTransfer.files
     if (files.length > 0) {
-      if (files.length === 1) {
-        handleFileSelect(files[0])
-      } else {
-        handleFilesSelect(files)
-      }
+      handleFilesSelect(files)
     }
-  }, [handleFileSelect, handleFilesSelect])
+  }, [handleFilesSelect])
 
-  const reExtract = () => {
-    if (!imageUrl || !imageName) return
-    const img = new Image()
-    img.onload = () => {
-      const maxWidth = 800
-      const scale = Math.min(1, maxWidth / img.width)
-      const w = Math.round(img.width * scale)
-      const h = Math.round(img.height * scale)
-
-      const canvas = canvasRef.current
-      if (!canvas) return
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-      ctx.drawImage(img, 0, 0, w, h)
-
-      const imageData = ctx.getImageData(0, 0, w, h)
-      const colors = extractColorsFromImage(imageData, colorCount, quality)
-      setExtractedColors(colors)
-      setSelectedColor(colors[0]?.hex || null)
-      showToast(`重新提取了 ${colors.length} 种颜色`, 'success')
-    }
-    img.src = imageUrl
-  }
-
-  const loadHistoryItem = (item: ExtractedPalette) => {
-    setImageUrl(item.sourceImage)
-    setImageName(item.sourceImageName)
-    setExtractedColors(item.colors.map((hex, i) => ({
-      hex,
-      percentage: Math.round(100 - i * 8),
-      count: 0,
-    })))
+  const loadItem = (item: ExtractedPalette) => {
+    setSelectedId(item.id)
     setSelectedColor(item.colors[0] || null)
-    setSelectedHistoryId(item.id)
-    setImageSize('')
   }
 
   const schemeColors = (() => {
@@ -236,47 +189,80 @@ export default function ImageExtractorTab({ showToast }: Props) {
     showToast(`已应用颜色 ${hex}`, 'success')
   }
 
-  const addAllToPalette = () => {
+  const addAllToPalette = (itemId?: string) => {
+    const id = itemId || selectedId
+    if (!id) {
+      showToast('请先选择一张提取结果', 'error')
+      return
+    }
     if (!activePaletteId) {
       showToast('请先选择一个调色板', 'error')
       return
     }
+    const item = extractedPalettes.find(e => e.id === id)
     const palette = palettes.find(p => p.id === activePaletteId)
-    if (!palette) return
-    const colors = extractedColors.map((c, i) => ({
-      hex: c.hex,
+    if (!item || !palette) return
+
+    const colors = item.colors.map((hex, i) => ({
+      hex,
       name: `主色 ${i + 1}`,
-      note: imageName ? `提取自 ${imageName}` : undefined,
-      sourceImage: imageName || undefined,
+      note: `提取自 ${item.sourceImageName}`,
+      sourceImage: item.sourceImageName,
     }))
-    addColorsToPalette(palette.id, colors)
-    showToast(`已将 ${extractedColors.length} 种颜色添加到「${palette.name}」`, 'success')
+    addColorsToPalette(activePaletteId, colors)
+    showToast(`已将 ${item.colors.length} 种颜色添加到「${palette.name}」`, 'success')
   }
 
-  const mergeHistoryToPalette = (itemId: string) => {
+  const addAllSelectedToPalette = () => {
     if (!activePaletteId) {
       showToast('请先选择一个调色板', 'error')
       return
     }
+    if (extractedPalettes.length === 0) return
+
     const palette = palettes.find(p => p.id === activePaletteId)
     if (!palette) return
-    mergeExtractedToPalette(itemId, activePaletteId)
-    const item = extractedPalettes.find(e => e.id === itemId)
-    showToast(`已将 ${item?.colors.length || 0} 种颜色合并到「${palette.name}」`, 'success')
+
+    let totalCount = 0
+    extractedPalettes.forEach(item => {
+      const colors = item.colors.map((hex, i) => ({
+        hex,
+        name: `${item.name} 主色 ${i + 1}`,
+        note: `提取自 ${item.sourceImageName}`,
+        sourceImage: item.sourceImageName,
+      }))
+      addColorsToPalette(activePaletteId, colors)
+      totalCount += colors.length
+    })
+
+    showToast(`已将全部 ${totalCount} 种颜色添加到「${palette.name}」`, 'success')
   }
 
-  const copyAllHex = () => {
-    if (extractedColors.length === 0) return
-    const hexes = extractedColors.map(c => c.hex).join('\n')
+  const copyAllHex = (itemId?: string) => {
+    const id = itemId || selectedId
+    if (!id) return
+    const item = extractedPalettes.find(e => e.id === id)
+    if (!item) return
+    const hexes = item.colors.join('\n')
     navigator.clipboard.writeText(hexes)
-    showToast(`已复制 ${extractedColors.length} 个颜色值`, 'success')
+    showToast(`已复制 ${item.colors.length} 个颜色值`, 'success')
   }
 
-  const handleDeleteHistory = (id: string) => {
+  const handleDeleteItem = (id: string) => {
     removeExtractedPalette(id)
-    if (selectedHistoryId === id) {
-      setSelectedHistoryId(null)
+    if (selectedId === id) {
+      const remaining = extractedPalettes.filter(p => p.id !== id)
+      setSelectedId(remaining[0]?.id || null)
+      setSelectedColor(remaining[0]?.colors[0] || null)
     }
+  }
+
+  const handleClearAll = () => {
+    if (!confirm('确定清空所有提取记录吗？')) return
+    clearExtractedPalettes()
+    setSelectedId(null)
+    setSelectedColor(null)
+    showToast('已清空提取记录', 'info')
   }
 
   return (
@@ -285,28 +271,24 @@ export default function ImageExtractorTab({ showToast }: Props) {
         <div>
           <div className="sidebar-header mb-3">
             <h3 className="sidebar-title">📚 提取记录</h3>
-            <button
-              className="icon-btn"
-              onClick={() => setShowHistory(!showHistory)}
-              title={showHistory ? '收起' : '展开'}
-            >
-              {showHistory ? '▼' : '▶'}
-            </button>
+            <span className="badge" style={{ fontSize: '11px' }}>
+              {extractedPalettes.length} 张
+            </span>
           </div>
 
-          {!showHistory ? null : extractedPalettes.length === 0 ? (
-            <div className="empty-state" style={{ padding: '20px 12px' }}>
-              <div className="empty-state-icon" style={{ fontSize: '28px' }}>🖼️</div>
+          {extractedPalettes.length === 0 ? (
+            <div className="empty-state" style={{ padding: '30px 12px' }}>
+              <div className="empty-state-icon" style={{ fontSize: '32px' }}>🖼️</div>
               <p className="empty-state-text text-sm">暂无提取记录</p>
               <p className="empty-state-sub text-xs">导入图片后会自动保存</p>
             </div>
           ) : (
-            <div className="palette-list">
+            <div className="palette-list" style={{ maxHeight: '400px', overflowY: 'auto' }}>
               {extractedPalettes.map(item => (
                 <div
                   key={item.id}
-                  className={`palette-list-item ${selectedHistoryId === item.id ? 'active' : ''}`}
-                  onClick={() => loadHistoryItem(item)}
+                  className={`palette-list-item ${selectedId === item.id ? 'active' : ''}`}
+                  onClick={() => loadItem(item)}
                 >
                   <div className="flex items-center gap-2" style={{ flex: 1, minWidth: 0 }}>
                     <div className="palette-swatches">
@@ -326,28 +308,32 @@ export default function ImageExtractorTab({ showToast }: Props) {
                         {item.name}
                       </div>
                       <div className="text-xs text-muted">
-                        {item.colors.length} 色 · {new Date(item.extractedAt).toLocaleDateString()}
+                        {item.colors.length} 色 · {new Date(item.extractedAt).toLocaleString()}
                       </div>
                     </div>
+                  </div>
+                  <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                     <button
                       className="icon-btn"
-                      style={{ fontSize: '11px' }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        mergeHistoryToPalette(item.id)
-                      }}
-                      title="合并到当前调色板"
+                      style={{ width: '22px', height: '22px', fontSize: '10px' }}
+                      onClick={() => addAllToPalette(item.id)}
+                      title="添加到调色板"
                     >
                       ➕
                     </button>
                     <button
                       className="icon-btn"
-                      style={{ fontSize: '11px' }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteHistory(item.id)
-                      }}
-                      title="删除记录"
+                      style={{ width: '22px', height: '22px', fontSize: '10px' }}
+                      onClick={() => copyAllHex(item.id)}
+                      title="复制全部"
+                    >
+                      📋
+                    </button>
+                    <button
+                      className="icon-btn"
+                      style={{ width: '22px', height: '22px', fontSize: '10px' }}
+                      onClick={() => handleDeleteItem(item.id)}
+                      title="删除"
                     >
                       🗑️
                     </button>
@@ -358,25 +344,31 @@ export default function ImageExtractorTab({ showToast }: Props) {
           )}
         </div>
 
-        {extractedPalettes.length > 0 && showHistory && (
+        {extractedPalettes.length > 0 && activePaletteId && (
           <div
             style={{
               marginTop: 'auto',
               padding: '12px',
+              background: 'rgba(139, 92, 246, 0.1)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border)',
             }}
           >
-            <button
-              className="btn btn-secondary btn-sm w-full"
-              onClick={() => {
-                if (confirm('确定清空所有提取记录吗？')) {
-                  clearExtractedPalettes()
-                  setSelectedHistoryId(null)
-                  showToast('已清空提取记录', 'info')
-                }
-              }}
-            >
-              🗑️ 清空记录
-            </button>
+            <div className="text-xs text-muted mb-2">💡 批量操作</div>
+            <div className="flex flex-col gap-2">
+              <button
+                className="btn btn-primary btn-sm w-full"
+                onClick={addAllSelectedToPalette}
+              >
+                📥 全部导入到调色板
+              </button>
+              <button
+                className="btn btn-secondary btn-sm w-full"
+                onClick={handleClearAll}
+              >
+                🗑️ 清空记录
+              </button>
+            </div>
           </div>
         )}
       </aside>
@@ -389,25 +381,60 @@ export default function ImageExtractorTab({ showToast }: Props) {
               图片主色调提取
             </h2>
             <div className="flex gap-2">
-              <button className="btn btn-secondary btn-sm" onClick={openFileDialog}>
-                📁 导入图片
+              <button className="btn btn-primary" onClick={openFileDialog}>
+                📁 导入图片（支持多选）
               </button>
-              {imageUrl && (
-                <>
-                  <button className="btn btn-secondary btn-sm" onClick={copyAllHex}>
-                    📋 复制全部
-                  </button>
-                  {activePaletteId && (
-                    <button className="btn btn-primary btn-sm" onClick={addAllToPalette}>
-                      ➕ 加入调色板
-                    </button>
-                  )}
-                </>
-              )}
             </div>
           </div>
 
-          {!imageUrl ? (
+          <div className="flex items-center gap-4 mb-4" style={{ flexWrap: 'wrap' }}>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted">颜色数:</label>
+              <select
+                className="form-input"
+                style={{ width: '80px', padding: '6px 10px' }}
+                value={colorCount}
+                onChange={e => setColorCount(Number(e.target.value))}
+              >
+                {[4, 6, 8, 10, 12, 16].map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted">精度:</label>
+              <select
+                className="form-input"
+                style={{ width: '90px', padding: '6px 10px' }}
+                value={quality}
+                onChange={e => setQuality(Number(e.target.value))}
+              >
+                <option value={1}>最高</option>
+                <option value={5}>高</option>
+                <option value={10}>中</option>
+                <option value={20}>快</option>
+              </select>
+            </div>
+            {activePaletteId && (
+              <div className="flex items-center gap-2 ml-auto">
+                <label className="text-sm text-muted">目标调色板:</label>
+                <select
+                  className="form-input"
+                  style={{ minWidth: '160px', padding: '6px 10px' }}
+                  value={activePaletteId || ''}
+                  onChange={e => setActivePalette(e.target.value)}
+                >
+                  {palettes.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.colors.length} 色)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {!selectedItem ? (
             <div
               className={`image-dropzone ${isDragging ? 'dragover' : ''}`}
               onClick={openFileDialog}
@@ -415,53 +442,22 @@ export default function ImageExtractorTab({ showToast }: Props) {
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
             >
-              <div className="dropzone-icon">📤</div>
-              <p className="dropzone-text font-semibold">点击选择图片或拖放到此处</p>
-              <p className="dropzone-sub">支持 PNG, JPG, GIF, BMP, WebP 格式，可同时导入多张</p>
+              {isProcessing ? (
+                <>
+                  <div className="dropzone-icon">⏳</div>
+                  <p className="dropzone-text font-semibold">正在提取中...</p>
+                  <p className="dropzone-sub">请稍候，正在处理图片</p>
+                </>
+              ) : (
+                <>
+                  <div className="dropzone-icon">📤</div>
+                  <p className="dropzone-text font-semibold">点击选择图片或拖放到此处</p>
+                  <p className="dropzone-sub">支持 PNG, JPG, GIF, BMP, WebP 格式，可同时导入多张</p>
+                </>
+              )}
             </div>
           ) : (
             <div>
-              <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-medium">📄 {imageName}</span>
-                  {imageSize && (
-                    <span className="text-sm text-muted font-mono">{imageSize}</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-muted">颜色数:</label>
-                    <select
-                      className="form-input"
-                      style={{ width: '80px', padding: '6px 10px' }}
-                      value={colorCount}
-                      onChange={e => setColorCount(Number(e.target.value))}
-                    >
-                      {[4, 6, 8, 10, 12, 16].map(n => (
-                        <option key={n} value={n}>{n}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-muted">精度:</label>
-                    <select
-                      className="form-input"
-                      style={{ width: '90px', padding: '6px 10px' }}
-                      value={quality}
-                      onChange={e => setQuality(Number(e.target.value))}
-                    >
-                      <option value={1}>最高</option>
-                      <option value={5}>高</option>
-                      <option value={10}>中</option>
-                      <option value={20}>快</option>
-                    </select>
-                  </div>
-                  <button className="btn btn-secondary btn-sm" onClick={reExtract}>
-                    🔄 重新提取
-                  </button>
-                </div>
-              </div>
-
               <div className="grid-2">
                 <div style={{
                   background: 'var(--bg-secondary)',
@@ -472,10 +468,11 @@ export default function ImageExtractorTab({ showToast }: Props) {
                   justifyContent: 'center',
                   overflow: 'hidden',
                   minHeight: '300px',
+                  position: 'relative',
                 }}>
                   <img
-                    src={imageUrl}
-                    alt={imageName}
+                    src={selectedItem.sourceImage}
+                    alt={selectedItem.name}
                     style={{
                       maxWidth: '100%',
                       maxHeight: '400px',
@@ -483,6 +480,20 @@ export default function ImageExtractorTab({ showToast }: Props) {
                       objectFit: 'contain',
                     }}
                   />
+                  <div
+                    className="text-xs"
+                    style={{
+                      position: 'absolute',
+                      bottom: '12px',
+                      left: '12px',
+                      background: 'rgba(0,0,0,0.6)',
+                      color: 'white',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                    }}
+                  >
+                    📄 {selectedItem.sourceImageName}
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -491,9 +502,30 @@ export default function ImageExtractorTab({ showToast }: Props) {
                       <h3 className="font-semibold text-sm" style={{ color: 'var(--text-secondary)' }}>
                         🎯 提取的主色调
                       </h3>
+                      <div className="flex gap-1">
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          style={{ fontSize: '11px', padding: '4px 8px' }}
+                          onClick={() => copyAllHex()}
+                        >
+                          📋 复制全部
+                        </button>
+                        {activePaletteId && (
+                          <button
+                            className="btn btn-primary btn-sm"
+                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                            onClick={() => addAllToPalette()}
+                          >
+                            ➕ 加入调色板
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="extracted-colors" style={{ marginTop: 0, maxHeight: '200px', overflowY: 'auto' }}>
-                      {extractedColors.map(c => (
+                    <div
+                      className="extracted-colors"
+                      style={{ marginTop: 0, maxHeight: '220px', overflowY: 'auto' }}
+                    >
+                      {selectedExtractedColors.map(c => (
                         <div
                           key={c.hex}
                           className={`extracted-color-item ${selectedColor === c.hex ? 'ring-2' : ''}`}

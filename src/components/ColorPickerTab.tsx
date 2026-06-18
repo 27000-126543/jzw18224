@@ -118,6 +118,55 @@ export default function ColorPickerTab({ showToast }: Props) {
     }
   }, [showToast])
 
+  const copyFrontendFormats = useCallback(() => {
+    if (!formats) return
+    const hex = formatHexString(formats.hex)
+    const rgb = formatRgbString(formats.rgb)
+    const hsl = formatHslString(formats.hsl)
+    const lines = [
+      `/* Color - ${hex} */`,
+      `--color: ${hex};`,
+      `--color-rgb: ${rgb};`,
+      `--color-hsl: ${hsl};`,
+      '',
+      `color: ${hex};`,
+      `color: ${rgb};`,
+      `color: ${hsl};`,
+    ]
+    copyToClipboard(lines.join('\n'), '前端三件套')
+  }, [formats, copyToClipboard])
+
+  const copyAllFormats = useCallback(() => {
+    if (!formats) return
+    const hex = formatHexString(formats.hex)
+    const hexLower = formatHexString(formats.hex, true, false)
+    const hexNoHash = formatHexString(formats.hex, false)
+    const rgb = formatRgbString(formats.rgb)
+    const hsl = formatHslString(formats.hsl)
+    const hsb = formatHsbString(formats.hsb)
+    const hsv = formatHsvString(formats.hsb)
+    const cmyk = formatCmykString(formats.cmyk)
+    const rgba = formatRgbaString(formats.rgba)
+    const hex8 = formatHex8String(formats.hex, 1)
+    const rgbValues = `${formats.rgb.r}, ${formats.rgb.g}, ${formats.rgb.b}`
+
+    const lines = [
+      `HEX:         ${hex}`,
+      `HEX (lower): ${hexLower}`,
+      `HEX (no #):  ${hexNoHash}`,
+      `HEX8:        ${hex8}`,
+      `RGB:         ${rgb}`,
+      `RGBA:        ${rgba}`,
+      `HSL:         ${hsl}`,
+      `HSB:         ${hsb}`,
+      `HSV:         ${hsv}`,
+      `CMYK:        ${cmyk}`,
+      `RGB Values:  ${rgbValues}`,
+      `CSS color:   color: ${hex};`,
+    ]
+    copyToClipboard(lines.join('\n'), '全部格式')
+  }, [formats, copyToClipboard])
+
   const handleSchemeColorClick = (hex: string) => {
     const rgb = hexToRgb(hex)
     const newColor = {
@@ -219,9 +268,27 @@ export default function ColorPickerTab({ showToast }: Props) {
             </div>
           </div>
 
-          <h3 className="font-semibold mb-3" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            🎨 颜色格式转换 · 共 {colorFormats.length} 种
-          </h3>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+              🎨 颜色格式转换 · 共 {colorFormats.length} 种
+            </h3>
+            <div className="flex gap-2">
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '11px', padding: '4px 10px' }}
+                onClick={copyFrontendFormats}
+              >
+                📋 前端三件套
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '11px', padding: '4px 10px' }}
+                onClick={copyAllFormats}
+              >
+                📦 复制全部
+              </button>
+            </div>
+          </div>
 
           <div className="color-formats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
             {colorFormats.map(item => (
