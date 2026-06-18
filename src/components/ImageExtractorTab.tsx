@@ -47,7 +47,10 @@ export default function ImageExtractorTab({ showToast }: Props) {
     }))
   }, [selectedItem])
 
-  const doExtractForFile = useCallback(async (filePath: string, isDataUrl: boolean = false): Promise<ExtractedPalette | null> => {
+  const doExtractForFile = useCallback(async (
+    imgSrc: string,
+    displayName: string
+  ): Promise<ExtractedPalette | null> => {
     return new Promise((resolve) => {
       const img = new Image()
       img.onload = () => {
@@ -68,22 +71,23 @@ export default function ImageExtractorTab({ showToast }: Props) {
         const colors = extractColorsFromImage(imageData, colorCount, quality)
         const hexColors = colors.map(c => c.hex)
 
-        const name = isDataUrl
-          ? filePath.split('/').pop() || 'image'
-          : filePath.split(/[/\\]/).pop() || 'image'
-
         const extracted = addExtractedPalette(
-          name.replace(/\.[^/.]+$/, ''),
+          displayName.replace(/\.[^/.]+$/, ''),
           img.src,
-          name,
+          displayName,
           hexColors
         )
         resolve(extracted)
       }
       img.onerror = () => resolve(null)
-      img.src = isDataUrl ? filePath : filePath
+      img.src = imgSrc
     })
   }, [colorCount, quality, addExtractedPalette])
+
+  const getBaseFilename = (pathOrName: string): string => {
+    const sep = pathOrName.includes('\\') ? '\\' : '/'
+    return pathOrName.split(sep).pop() || pathOrName
+  }
 
   const handleFilesSelect = useCallback(async (files: FileList) => {
     const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'))
@@ -97,7 +101,7 @@ export default function ImageExtractorTab({ showToast }: Props) {
 
     for (const file of imageFiles) {
       const url = URL.createObjectURL(file)
-      await doExtractForFile(url, true)
+      await doExtractForFile(url, getBaseFilename(file.name))
       count++
     }
 
@@ -120,7 +124,7 @@ export default function ImageExtractorTab({ showToast }: Props) {
         for (const filePath of filePaths) {
           const dataUrl = await api.dialog.readImageFile(filePath)
           if (dataUrl) {
-            await doExtractForFile(dataUrl, true)
+            await doExtractForFile(dataUrl, getBaseFilename(filePath))
             count++
           }
         }

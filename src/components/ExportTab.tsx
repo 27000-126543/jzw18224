@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useAppStore } from '../store/useAppStore'
-import type { ColorPalette, PaletteColor, ColorGroupKey } from '../types'
-import { DEFAULT_COLOR_GROUPS } from '../types'
+import type { ColorPalette, PaletteColor, ColorGroupKey, ColorGroup } from '../types'
+import { getDefaultColorGroups } from '../types'
 import { hexToRgb } from '../utils/colorUtils'
 import { toKebabCase } from '../utils/stringUtils'
 
@@ -35,8 +35,8 @@ const getVarName = (paletteName: string, colorName?: string, idx?: number): stri
   return `color-${(idx ?? 0) + 1}`
 }
 
-const getGroupInfo = (palette: ColorPalette) => {
-  const groups = [...DEFAULT_COLOR_GROUPS]
+const getGroupInfo = (palette: ColorPalette): ColorGroup[] => {
+  const groups = getDefaultColorGroups()
   if (palette.groups) {
     groups.forEach(g => {
       const desc = palette.groups![g.id]
@@ -768,59 +768,44 @@ export default function ExportTab({ showToast }: Props) {
       return
     }
 
-    const { dialog } = api
-    const first = toGenerate[0]
-    const dirPath = first.fileName.replace(/^.*[\\/]/, '')
-    const defaultBase = `${slug(activePalette.name) || 'palette'}-palette`
-
-    const firstResult = await dialog.saveFile({
-      defaultName: `${defaultBase}/${first.fileName}`,
-      content: first.content,
-      filters: [first.filter],
-    })
-
-    if (!firstResult.success) {
-      if (firstResult.path) {
-        showToast('导出已取消', 'info')
-      }
+    // Electron 端：只弹一次选目录，所有文件批量写入同目录
+    const paletteDirName = `${slug(activePalette.name) || 'palette'}-palette`
+    const selectedDir = await api.dialog.chooseDirectory(paletteDirName)
+    if (!selectedDir) {
+      showToast('已取消导出', 'info')
       return
     }
 
-    const savedDir = firstResult.path?.replace(/[\\/][^\\/]*$/, '')
-    if (!savedDir) {
-      showToast('无法确定保存目录', 'error')
-      return
-    }
+    const paletteDir = await api.dialog.joinPath(selectedDir, paletteDirName)
 
-    let successCount = 1
+    let successCount = 0
+    const writtenPaths: string[] = []
+    const errors: string[] = []
 
-    for (let i = 1; i < toGenerate.length; i++) {
-      const t = toGenerate[i]
-      const targetPath = `${savedDir}\\${t.fileName}`
-      try {
-        await (window as any).electronAPI.dialog.saveFile({
-          defaultName: t.fileName,
-          content: t.content,
-          filters: [t.filter],
-        })
+    const writeOne = async (fileName: string, content: string) => {
+      const fullPath = await api.dialog.joinPath(paletteDir, fileName)
+      const result = await api.dialog.writeFile(fullPath, content)
+      if (result.success && result.path) {
         successCount++
-      } catch {
+        writtenPaths.push(result.path)
+      } else if (result.error) {
+        errors.push(`${fileName}: ${result.error}`)
       }
+    }
+
+    for (const t of toGenerate) {
+      await writeOne(t.fileName, t.content)
     }
 
     if (readme) {
-      try {
-        await (window as any).electronAPI.dialog.saveFile({
-          defaultName: 'README.md',
-          content: readme.content,
-          filters: [{ name: 'Markdown', extensions: ['md'] }],
-        })
-        successCount++
-      } catch {
-      }
+      await writeOne(readme.fileName, readme.content)
     }
 
-    showToast(`导出完成，共 ${successCount} 个文件（目录：${savedDir}）`, 'success')
+    if (errors.length > 0) {
+      showToast(`部分导出失败（成功 ${successCount}，失败 ${errors.length}）: ${paletteDir}`, 'error')
+    } else {
+      showToast(`导出完成！共 ${successCount} 个文件：${paletteDir}`, 'success')
+    }
   }
 
   const getFileName = (palette: ColorPalette, fmt: ExportFormat): string => {

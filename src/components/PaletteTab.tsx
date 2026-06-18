@@ -1,8 +1,8 @@
 import { useState, useMemo, useRef } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { getContrastRatio, hexToRgb, rgbToHsl } from '../utils/colorUtils'
-import type { PaletteColor, ColorGroupKey } from '../types'
-import { DEFAULT_COLOR_GROUPS } from '../types'
+import type { PaletteColor, ColorGroupKey, ColorGroup } from '../types'
+import { getDefaultColorGroups } from '../types'
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void
@@ -73,17 +73,24 @@ export default function PaletteTab({ showToast }: Props) {
   }
 
   const paletteGroups = useMemo(() => {
-    const groups = { ...DEFAULT_COLOR_GROUPS }
+    const defaults = getDefaultColorGroups()
+    const groupsMap: Record<ColorGroupKey, ColorGroup> = {} as any
+    defaults.forEach(g => { groupsMap[g.id] = { ...g } })
     if (activePalette?.groups) {
-      groups.forEach(g => {
-        const desc = activePalette.groups![g.id]
-        if (desc !== undefined) g.description = desc
+      Object.entries(activePalette.groups).forEach(([gid, desc]) => {
+        if (groupsMap[gid as ColorGroupKey] && desc !== undefined) {
+          groupsMap[gid as ColorGroupKey].description = desc
+        }
       })
     }
-    return groups
+    return defaults.map(g => groupsMap[g.id])
   }, [activePalette])
 
-  const getGroupById = (gid: ColorGroupKey) => paletteGroups.find(g => g.id === gid)!
+  const getGroupById = useMemo(() => {
+    const map: Record<ColorGroupKey, typeof paletteGroups[number]> = {} as any
+    paletteGroups.forEach(g => { map[g.id] = g })
+    return (gid: ColorGroupKey) => map[gid] || paletteGroups[paletteGroups.length - 1]
+  }, [paletteGroups])
 
   const filteredColors = useMemo(() => {
     if (!activePalette) return []
@@ -419,16 +426,6 @@ export default function PaletteTab({ showToast }: Props) {
       })
       lines.push('')
     })
-
-    const ungrouped = p.colors.filter(c => !c.group || c.group === 'custom')
-    if (ungrouped.length > 0 && p.colors.every(c => !c.group || c.group === 'custom') === false) {
-      lines.push('## 📦 未分组')
-      lines.push('')
-      ungrouped.forEach(c => {
-        lines.push(`- \`${c.hex}\` ${c.name || ''}`)
-      })
-      lines.push('')
-    }
 
     const sourceImages = Array.from(new Set(p.colors.map(c => c.sourceImage).filter(Boolean)))
     if (sourceImages.length > 0) {

@@ -561,6 +561,38 @@ ipcMain.handle('dialog:openImages', async () => {
   return []
 })
 
+ipcMain.handle('dialog:chooseDirectory', async (_, suggestedName?: string) => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory'],
+    title: suggestedName ? `选择保存位置（将新建目录「${suggestedName}」）` : '选择保存目录',
+    buttonLabel: '选择目录',
+  })
+  if (result.canceled) return null
+  return result.filePaths[0] || null
+})
+
+ipcMain.handle('fs:writeFile', async (_, filePath: string, content: string) => {
+  try {
+    const fs = await import('fs')
+    const path = await import('path')
+
+    const dir = path.dirname(filePath)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+
+    fs.writeFileSync(filePath, content, 'utf-8')
+    return { success: true, path: filePath }
+  } catch (e: any) {
+    return { success: false, error: e.message as string }
+  }
+})
+
+ipcMain.handle('path:join', async (_, ...parts: string[]) => {
+  const path = await import('path')
+  return path.join(...parts)
+})
+
 ipcMain.handle('dialog:readImageFile', async (_e, filePath: string) => {
   try {
     const buf = fs.readFileSync(filePath)

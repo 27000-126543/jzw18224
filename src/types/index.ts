@@ -26,6 +26,10 @@ export const DEFAULT_COLOR_GROUPS: ColorGroup[] = [
   { id: 'custom', name: '未分组', description: '暂未归类的颜色', icon: '📦' },
 ]
 
+export function getDefaultColorGroups(): ColorGroup[] {
+  return DEFAULT_COLOR_GROUPS.map(g => ({ ...g }))
+}
+
 export interface ColorPalette {
   id: string
   name: string
@@ -88,6 +92,13 @@ export interface DialogAPI {
     content: string
     filters: { name: string; extensions: string[] }[]
   }) => Promise<{ success: boolean; path?: string }>
+  chooseDirectory: (suggestedName?: string) => Promise<string | null>
+  writeFile: (filePath: string, content: string) => Promise<{
+    success: boolean
+    path?: string
+    error?: string
+  }>
+  joinPath: (...parts: string[]) => Promise<string>
 }
 
 export interface PickerAPI {

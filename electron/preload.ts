@@ -80,6 +80,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       content: string
       filters: { name: string; extensions: string[] }[]
     }): Promise<{ success: boolean; path?: string }> => ipcRenderer.invoke('dialog:saveFile', params),
+    chooseDirectory: (suggestedName?: string): Promise<string | null> =>
+      ipcRenderer.invoke('dialog:chooseDirectory', suggestedName),
+    writeFile: (filePath: string, content: string): Promise<{ success: boolean; path?: string; error?: string }> =>
+      ipcRenderer.invoke('fs:writeFile', filePath, content),
+    joinPath: (...parts: string[]): Promise<string> =>
+      ipcRenderer.invoke('path:join', ...parts),
   },
 
   window: {

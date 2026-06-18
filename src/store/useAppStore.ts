@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { PickedColor, ColorPalette, PaletteColor, ExtractedPalette, ColorGroupKey } from '../types'
-import { DEFAULT_COLOR_GROUPS } from '../types'
+import { getDefaultColorGroups } from '../types'
 import { generateId } from '../utils/colorUtils'
 
 interface AppState {
@@ -81,8 +81,9 @@ export const useAppStore = create<AppState>()(
 
       createPalette: (name, description) => {
         const now = Date.now()
+        const defaultGroups = getDefaultColorGroups()
         const groupsObj: ColorPalette['groups'] = {}
-        DEFAULT_COLOR_GROUPS.forEach(g => { groupsObj[g.id] = g.description })
+        defaultGroups.forEach(g => { groupsObj[g.id] = g.description })
         const palette: ColorPalette = {
           id: generateId(),
           name,
