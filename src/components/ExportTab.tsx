@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useAppStore } from '../store/useAppStore'
-import type { ColorPalette, PaletteColor } from '../types'
+import type { ColorPalette, PaletteColor, ColorGroupKey } from '../types'
+import { DEFAULT_COLOR_GROUPS } from '../types'
 import { hexToRgb } from '../utils/colorUtils'
 import { toKebabCase } from '../utils/stringUtils'
 
@@ -32,6 +33,121 @@ const slug = (s: string) =>
 const getVarName = (paletteName: string, colorName?: string, idx?: number): string => {
   if (colorName) return toKebabCase(colorName).replace(/[^a-z0-9-]/g, '')
   return `color-${(idx ?? 0) + 1}`
+}
+
+const getGroupInfo = (palette: ColorPalette) => {
+  const groups = [...DEFAULT_COLOR_GROUPS]
+  if (palette.groups) {
+    groups.forEach(g => {
+      const desc = palette.groups![g.id]
+      if (desc !== undefined) g.description = desc
+    })
+  }
+  return groups
+}
+
+const generateReadme = (palette: ColorPalette): string => {
+  const groups = getGroupInfo(palette)
+  const sourceImages = Array.from(new Set(palette.colors.map(c => c.sourceImage).filter(Boolean)))
+  const date = new Date().toLocaleString()
+  const lines: string[] = []
+
+  lines.push(`# ${palette.name}`)
+  lines.push('')
+  lines.push(`> 🎨 **调色板交付包**`)
+  lines.push('>')
+  lines.push(`> - **生成时间**: ${date}`)
+  lines.push(`> - **颜色总数**: ${palette.colors.length} 个`)
+  lines.push(`> - **分组数量**: ${groups.filter(g => palette.colors.some(c => (c.group || 'custom') === g.id)).length} 个`)
+  if (sourceImages.length > 0) lines.push(`> - **来源图片**: ${sourceImages.length} 张`)
+  if (palette.description) lines.push(`> - **说明**: ${palette.description}`)
+  lines.push('')
+  lines.push('---')
+  lines.push('')
+  lines.push('## 📁 目录结构')
+  lines.push('')
+  lines.push('```')
+  lines.push(`${slug(palette.name) || 'palette'}-palette/`)
+  lines.push('├── README.md              # 本文件 — 使用说明')
+  lines.push('├── css-theme.css          # 语义化 CSS 主题变量')
+  lines.push('├── css-variables.css      # 基础 CSS 变量')
+  lines.push('├── tailwind.config.js     # Tailwind 配置')
+  lines.push('├── tokens.json            # W3C Design Tokens 标准')
+  lines.push('└── palette.json           # 结构化原始数据')
+  lines.push('```')
+  lines.push('')
+  lines.push('## 🎯 颜色分组')
+  lines.push('')
+
+  groups.forEach(g => {
+    const colors = palette.colors.filter(c => (c.group || 'custom') === g.id)
+    if (colors.length === 0) return
+    lines.push(`### ${g.icon} ${g.name}（${colors.length} 色）`)
+    lines.push('')
+    if (g.description) lines.push(`> ${g.description}`)
+    lines.push('')
+    lines.push('| # | 预览 | 名称 | HEX | RGB | 备注 | 来源 |')
+    lines.push('|---|------|------|-----|-----|------|------|')
+    colors.forEach((c, i) => {
+      const rgb = hexToRgb(c.hex)
+      lines.push(`| ${i + 1} | <div style="display:inline-block;width:14px;height:14px;background:${c.hex};border-radius:3px;border:1px solid #ddd;"></div> | ${c.name || '—'} | \`${c.hex}\` | ${rgb ? `${rgb.r},${rgb.g},${rgb.b}` : '—'} | ${c.note || '—'} | ${c.sourceImage || '—'} |`)
+    })
+    lines.push('')
+  })
+
+  lines.push('## 🚀 快速使用')
+  lines.push('')
+  lines.push('### CSS 变量（浏览器原生）')
+  lines.push('')
+  lines.push('```css')
+  lines.push(`@import './css-theme.css';`)
+  lines.push('')
+  lines.push('.btn-primary {')
+  if (palette.colors.length > 0) {
+    const n = getVarName(palette.name, palette.colors[0]?.name, 0)
+    lines.push(`  background: var(--color-${n});`)
+  }
+  lines.push('  color: white;')
+  lines.push('}')
+  lines.push('```')
+  lines.push('')
+  lines.push('### Tailwind CSS')
+  lines.push('')
+  lines.push('```jsx')
+  lines.push(`// tailwind.config.js 中合并配置`)
+  lines.push(`<button className="bg-${slug(palette.name) || 'palette'}-primary text-white">按钮</button>`)
+  lines.push('```')
+  lines.push('')
+  lines.push('### JavaScript / TypeScript')
+  lines.push('')
+  lines.push('```ts')
+  lines.push(`import { theme } from './theme.ts'`)
+  lines.push(`// 或读取结构化数据`)
+  lines.push(`import palette from './palette.json'`)
+  lines.push('```')
+  lines.push('')
+  lines.push('## 🔗 设计令牌标准')
+  lines.push('')
+  lines.push('`tokens.json` 遵循 [W3C Design Tokens Community Group](https://design-tokens.github.io/community-group/format/) 标准，可在 Figma、Sketch、Style Dictionary 等工具中直接导入使用。')
+  lines.push('')
+
+  if (sourceImages.length > 0) {
+    lines.push('## 🖼️ 来源图片')
+    lines.push('')
+    lines.push('以下图片被用于提取颜色：')
+    lines.push('')
+    sourceImages.forEach(s => {
+      const count = palette.colors.filter(c => c.sourceImage === s).length
+      lines.push(`- **${s}**：提取了 ${count} 个颜色`)
+    })
+    lines.push('')
+  }
+
+  lines.push('---')
+  lines.push('')
+  lines.push(`_生成于 ${date} — 🎨 由 Color Palette Tool 生成_`)
+
+  return lines.join('\n')
 }
 
 const generateCss = (palette: ColorPalette, prefix: string = 'color'): string => {
@@ -461,6 +577,11 @@ export default function ExportTab({ showToast }: Props) {
   const [format, setFormat] = useState<ExportFormat>('css')
   const [cssPrefix, setCssPrefix] = useState('color')
   const [copied, setCopied] = useState(false)
+  const [selectedFormats, setSelectedFormats] = useState<Set<ExportFormat>>(
+    new Set(['css-theme', 'tailwind', 'design-tokens', 'json'])
+  )
+  const [includeReadme, setIncludeReadme] = useState(true)
+  const [isBatchMode, setIsBatchMode] = useState(false)
 
   const activePalette = palettes.find(p => p.id === activePaletteId) || palettes[0]
 
@@ -533,6 +654,173 @@ export default function ExportTab({ showToast }: Props) {
     if (result.success) {
       showToast(`已导出到: ${result.path}`, 'success')
     }
+  }
+
+  const toggleFormat = (f: ExportFormat) => {
+    setSelectedFormats(prev => {
+      const next = new Set(prev)
+      if (next.has(f)) next.delete(f)
+      else next.add(f)
+      return next
+    })
+  }
+
+  const toggleAllFormats = () => {
+    if (selectedFormats.size === formatOptions.length) {
+      setSelectedFormats(new Set())
+    } else {
+      setSelectedFormats(new Set(formatOptions.map(o => o.id)))
+    }
+  }
+
+  const presetFrontend = () => {
+    setSelectedFormats(new Set(['css', 'css-theme', 'scss', 'tailwind', 'styled-components', 'ts-theme', 'design-tokens', 'json']))
+  }
+
+  const presetBasic = () => {
+    setSelectedFormats(new Set(['css', 'scss', 'json']))
+  }
+
+  const presetAll = () => {
+    toggleAllFormats()
+  }
+
+  const batchExport = async () => {
+    if (!activePalette) return
+    if (selectedFormats.size === 0) {
+      showToast('请至少选择一种导出格式', 'error')
+      return
+    }
+
+    const api = window.electronAPI
+
+    const toGenerate: { format: ExportFormat; fileName: string; content: string; filter: { name: string; extensions: string[] } }[] = []
+
+    const filterMap: Record<ExportFormat, { name: string; extensions: string[] }> = {
+      css: { name: 'CSS', extensions: ['css'] },
+      'css-theme': { name: 'CSS', extensions: ['css'] },
+      'css-classes': { name: 'CSS', extensions: ['css'] },
+      scss: { name: 'SCSS', extensions: ['scss'] },
+      less: { name: 'LESS', extensions: ['less'] },
+      stylus: { name: 'Stylus', extensions: ['styl'] },
+      tailwind: { name: 'JavaScript', extensions: ['js'] },
+      'styled-components': { name: 'TypeScript', extensions: ['ts'] },
+      'js-theme': { name: 'JavaScript', extensions: ['js'] },
+      'ts-theme': { name: 'TypeScript', extensions: ['ts'] },
+      'design-tokens': { name: 'JSON', extensions: ['json'] },
+      svg: { name: 'SVG', extensions: ['svg'] },
+      json: { name: 'JSON', extensions: ['json'] },
+    }
+
+    const getContentFor = (f: ExportFormat): string => {
+      switch (f) {
+        case 'css': return generateCss(activePalette, cssPrefix)
+        case 'css-theme': return generateCssTheme(activePalette, cssPrefix)
+        case 'css-classes': return generateCssClasses(activePalette, cssPrefix)
+        case 'scss': return generateScss(activePalette)
+        case 'less': return generateLess(activePalette)
+        case 'stylus': return generateStylus(activePalette)
+        case 'tailwind': return generateTailwind(activePalette)
+        case 'styled-components': return generateStyledComponents(activePalette)
+        case 'js-theme': return generateJsTheme(activePalette)
+        case 'ts-theme': return generateTsTheme(activePalette)
+        case 'design-tokens': return generateDesignTokens(activePalette)
+        case 'svg': return generateSvg(activePalette)
+        case 'json': return generateJson(activePalette)
+        default: return ''
+      }
+    }
+
+    selectedFormats.forEach(f => {
+      toGenerate.push({
+        format: f,
+        fileName: getFileName(activePalette, f),
+        content: getContentFor(f),
+        filter: filterMap[f],
+      })
+    })
+
+    let readme: { fileName: string; content: string } | null = null
+    if (includeReadme) {
+      readme = {
+        fileName: 'README.md',
+        content: generateReadme(activePalette),
+      }
+    }
+
+    if (!api) {
+      let count = 0
+      const doDownload = (fileName: string, content: string, type: string = 'text/plain') => {
+        const blob = new Blob([content], { type })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = fileName
+        a.click()
+        URL.revokeObjectURL(url)
+        count++
+      }
+
+      toGenerate.forEach(t => doDownload(t.fileName, t.content))
+      if (readme) doDownload(readme.fileName, readme.content, 'text/markdown')
+
+      showToast(`已下载 ${count} 个文件`, 'success')
+      return
+    }
+
+    const { dialog } = api
+    const first = toGenerate[0]
+    const dirPath = first.fileName.replace(/^.*[\\/]/, '')
+    const defaultBase = `${slug(activePalette.name) || 'palette'}-palette`
+
+    const firstResult = await dialog.saveFile({
+      defaultName: `${defaultBase}/${first.fileName}`,
+      content: first.content,
+      filters: [first.filter],
+    })
+
+    if (!firstResult.success) {
+      if (firstResult.path) {
+        showToast('导出已取消', 'info')
+      }
+      return
+    }
+
+    const savedDir = firstResult.path?.replace(/[\\/][^\\/]*$/, '')
+    if (!savedDir) {
+      showToast('无法确定保存目录', 'error')
+      return
+    }
+
+    let successCount = 1
+
+    for (let i = 1; i < toGenerate.length; i++) {
+      const t = toGenerate[i]
+      const targetPath = `${savedDir}\\${t.fileName}`
+      try {
+        await (window as any).electronAPI.dialog.saveFile({
+          defaultName: t.fileName,
+          content: t.content,
+          filters: [t.filter],
+        })
+        successCount++
+      } catch {
+      }
+    }
+
+    if (readme) {
+      try {
+        await (window as any).electronAPI.dialog.saveFile({
+          defaultName: 'README.md',
+          content: readme.content,
+          filters: [{ name: 'Markdown', extensions: ['md'] }],
+        })
+        successCount++
+      } catch {
+      }
+    }
+
+    showToast(`导出完成，共 ${successCount} 个文件（目录：${savedDir}）`, 'success')
   }
 
   const getFileName = (palette: ColorPalette, fmt: ExportFormat): string => {
@@ -650,54 +938,241 @@ export default function ExportTab({ showToast }: Props) {
           )}
         </div>
 
-        <div className="export-tabs" style={{ flexWrap: 'wrap' }}>
-          {formatOptions.map(opt => (
-            <button
-              key={opt.id}
-              className={`export-tab ${format === opt.id ? 'active' : ''}`}
-              onClick={() => setFormat(opt.id)}
-            >
-              <span className="mr-1">{opt.icon}</span>
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {activePalette && (
-          <div
-            className="text-sm text-muted mb-3"
-            style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)' }}
-          >
-            💡 {formatDescription[format]}
-          </div>
-        )}
-
         <div
-          className="code-preview"
+          className="flex gap-2 mb-3"
           style={{
-            whiteSpace: format === 'svg' ? 'pre' : 'pre-wrap',
-            position: 'relative',
+            padding: '8px',
+            background: 'var(--bg-secondary)',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border)',
+            width: 'fit-content',
           }}
         >
-          {exportContent}
+          <button
+            className={`btn ${!isBatchMode ? 'btn-primary' : 'btn-ghost'} btn-sm`}
+            onClick={() => setIsBatchMode(false)}
+          >
+            📄 单格式导出
+          </button>
+          <button
+            className={`btn ${isBatchMode ? 'btn-primary' : 'btn-ghost'} btn-sm`}
+            onClick={() => setIsBatchMode(true)}
+          >
+            📦 打包交付
+          </button>
         </div>
 
-        <div className="flex gap-3 mt-5">
-          <button className="btn btn-primary" onClick={copyToClipboard}>
-            {copied ? '✅ 已复制' : '📋 复制代码'}
-          </button>
-          <button className="btn btn-secondary" onClick={exportFile}>
-            💾 导出为文件
-          </button>
-          {activePalette && (
-            <div
-              className="text-sm text-muted"
-              style={{ alignSelf: 'center', marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '11px' }}
-            >
-              文件名: {getFileName(activePalette, format)}
+        {!isBatchMode ? (
+          <>
+            <div className="export-tabs" style={{ flexWrap: 'wrap' }}>
+              {formatOptions.map(opt => (
+                <button
+                  key={opt.id}
+                  className={`export-tab ${format === opt.id ? 'active' : ''}`}
+                  onClick={() => setFormat(opt.id)}
+                >
+                  <span className="mr-1">{opt.icon}</span>
+                  {opt.label}
+                </button>
+              ))}
             </div>
-          )}
-        </div>
+
+            {activePalette && (
+              <div
+                className="text-sm text-muted mb-3"
+                style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)' }}
+              >
+                💡 {formatDescription[format]}
+              </div>
+            )}
+
+            <div
+              className="code-preview"
+              style={{
+                whiteSpace: format === 'svg' ? 'pre' : 'pre-wrap',
+                position: 'relative',
+              }}
+            >
+              {exportContent}
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <button className="btn btn-primary" onClick={copyToClipboard}>
+                {copied ? '✅ 已复制' : '📋 复制代码'}
+              </button>
+              <button className="btn btn-secondary" onClick={exportFile}>
+                💾 导出为文件
+              </button>
+              {activePalette && (
+                <div
+                  className="text-sm text-muted"
+                  style={{ alignSelf: 'center', marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '11px' }}
+                >
+                  文件名: {getFileName(activePalette, format)}
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div
+              style={{
+                padding: '16px 20px',
+                background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.08), rgba(59, 130, 246, 0.08))',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border)',
+                marginBottom: '20px',
+              }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-sm mb-1">📦 调色板交付包导出</h3>
+                  <div className="text-xs text-muted">一次选择多种格式，打包导出给前端和设计同事，可勾选常用格式，配合 README 直接交付</div>
+                </div>
+                <div className="text-xs text-muted">
+                  已选 <strong style={{ color: 'var(--accent-primary)' }}>{selectedFormats.size}</strong>
+                  种格式
+                  {includeReadme ? ' + README' : ''}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 mb-4 flex-wrap">
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={presetBasic}
+                  title="CSS + SCSS + JSON"
+                >
+                  🎯 基础
+                </button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={presetFrontend}
+                  title="前端开发常用格式"
+                >
+                  ⚛️ 前端常用
+                </button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={presetAll}
+                  title="勾选/取消全部"
+                >
+                  🎛️ 全部
+                </button>
+                <label className="flex items-center gap-2 ml-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeReadme}
+                    onChange={e => setIncludeReadme(e.target.checked)}
+                    style={{ accentColor: 'var(--accent-primary)' }}
+                  />
+                  <span className="text-xs">包含 README 说明</span>
+                </label>
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                  gap: '8px',
+                }}
+              >
+                {formatOptions.map(opt => {
+                  const checked = selectedFormats.has(opt.id)
+                  return (
+                    <label
+                      key={opt.id}
+                      className="flex items-center gap-2 p-3 cursor-pointer"
+                      style={{
+                        background: checked ? 'rgba(139, 92, 246, 0.1)' : 'var(--bg-primary)',
+                        borderRadius: 'var(--radius-sm)',
+                        border: checked ? '1.5px solid var(--accent-primary)' : '1px solid var(--border-light)',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleFormat(opt.id)}
+                        style={{ accentColor: 'var(--accent-primary)' }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          className="text-sm font-medium"
+                          style={{ color: checked ? 'var(--accent-primary)' : 'var(--text-primary)' }}
+                        >
+                          {opt.icon} {opt.label}
+                        </div>
+                        <div
+                          className="text-xs truncate"
+                          style={{ color: 'var(--text-muted)' }}
+                          title={formatDescription[opt.id]}
+                        >
+                          {formatDescription[opt.id].slice(0, 20)}...
+                        </div>
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+
+              {(format === 'css' || format === 'css-theme' || format === 'css-classes' ||
+                selectedFormats.has('css') || selectedFormats.has('css-theme') ||
+                selectedFormats.has('css-classes')) && (
+                  <div className="form-group mt-4">
+                    <label className="form-label text-xs">CSS 变量 / 类名 前缀</label>
+                    <input
+                      className="form-input font-mono"
+                      placeholder="color"
+                      value={cssPrefix}
+                      onChange={e => setCssPrefix(e.target.value)}
+                      style={{ maxWidth: '260px', padding: '6px 10px', fontSize: '12px' }}
+                    />
+                  </div>
+                )
+              }
+            </div>
+
+            {activePalette && includeReadme && (
+              <div className="mb-4">
+                <h3
+                  className="font-semibold text-sm mb-2"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  📄 README 预览
+                </h3>
+                <div
+                  className="code-preview"
+                  style={{
+                    maxHeight: '240px',
+                    overflow: 'auto',
+                    fontSize: '12px',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {generateReadme(activePalette)}
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 mt-4">
+              <button
+                className="btn btn-primary"
+                onClick={batchExport}
+                disabled={selectedFormats.size === 0}
+              >
+                📦 打包导出（{selectedFormats.size}{includeReadme ? ' +1' : ''} 个文件）
+              </button>
+              {activePalette && selectedFormats.size > 0 && (
+                <div
+                  className="text-xs text-muted"
+                  style={{ alignSelf: 'center', fontFamily: 'var(--font-mono)' }}
+                >
+                  目录: {slug(activePalette.name) || 'palette'}-palette/
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {activePalette && (

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { PickedColor, ColorPalette, PaletteColor, ExtractedPalette } from '../types'
+import type { PickedColor, ColorPalette, PaletteColor, ExtractedPalette, ColorGroupKey } from '../types'
+import { DEFAULT_COLOR_GROUPS } from '../types'
 import { generateId } from '../utils/colorUtils'
 
 interface AppState {
@@ -18,14 +19,16 @@ interface AppState {
 
   createPalette: (name: string, description?: string) => ColorPalette
   deletePalette: (id: string) => void
-  updatePalette: (id: string, updates: Partial<Pick<ColorPalette, 'name' | 'description'>>) => void
+  updatePalette: (id: string, updates: Partial<Pick<ColorPalette, 'name' | 'description' | 'groups'>>) => void
   setActivePalette: (id: string | null) => void
-  addColorToPalette: (paletteId: string, hex: string, name?: string, note?: string, sourceImage?: string) => void
-  addColorsToPalette: (paletteId: string, colors: { hex: string; name?: string; note?: string; sourceImage?: string }[]) => void
+  addColorToPalette: (paletteId: string, hex: string, name?: string, note?: string, sourceImage?: string, group?: ColorGroupKey) => void
+  addColorsToPalette: (paletteId: string, colors: { hex: string; name?: string; note?: string; sourceImage?: string; group?: ColorGroupKey }[]) => void
   removeColorFromPalette: (paletteId: string, colorId: string) => void
   updateColorInPalette: (paletteId: string, colorId: string, updates: Partial<PaletteColor>) => void
   reorderColorsInPalette: (paletteId: string, fromIndex: number, toIndex: number) => void
   duplicateColorInPalette: (paletteId: string, colorId: string) => void
+  assignGroupToColors: (paletteId: string, colorIds: string[], group: ColorGroupKey) => void
+  updateGroupDescription: (paletteId: string, groupId: ColorGroupKey, description: string) => void
 
   addExtractedPalette: (name: string, sourceImage: string, sourceImageName: string, colors: string[]) => ExtractedPalette
   removeExtractedPalette: (id: string) => void
@@ -78,6 +81,8 @@ export const useAppStore = create<AppState>()(
 
       createPalette: (name, description) => {
         const now = Date.now()
+        const groupsObj: ColorPalette['groups'] = {}
+        DEFAULT_COLOR_GROUPS.forEach(g => { groupsObj[g.id] = g.description })
         const palette: ColorPalette = {
           id: generateId(),
           name,
@@ -85,6 +90,7 @@ export const useAppStore = create<AppState>()(
           colors: [],
           createdAt: now,
           updatedAt: now,
+          groups: groupsObj,
         }
         const { palettes } = get()
         set({
@@ -120,7 +126,7 @@ export const useAppStore = create<AppState>()(
         set({ activePaletteId: id })
       },
 
-      addColorToPalette: (paletteId, hex, name, note, sourceImage) => {
+      addColorToPalette: (paletteId, hex, name, note, sourceImage, group) => {
         const { palettes } = get()
         const newColor: PaletteColor = {
           id: generateId(),
@@ -128,6 +134,7 @@ export const useAppStore = create<AppState>()(
           name,
           note,
           sourceImage,
+          group,
           addedAt: Date.now(),
         }
         set({
@@ -152,6 +159,7 @@ export const useAppStore = create<AppState>()(
           name: c.name,
           note: c.note,
           sourceImage: c.sourceImage,
+          group: c.group,
           addedAt: now,
         }))
         set({
@@ -233,6 +241,37 @@ export const useAppStore = create<AppState>()(
             const newColors = [...p.colors]
             newColors.splice(idx + 1, 0, newColor)
             return { ...p, colors: newColors, updatedAt: Date.now() }
+          }),
+        })
+      },
+
+      assignGroupToColors: (paletteId, colorIds, group) => {
+        const { palettes } = get()
+        const idSet = new Set(colorIds)
+        set({
+          palettes: palettes.map(p => {
+            if (p.id !== paletteId) return p
+            return {
+              ...p,
+              colors: p.colors.map(c =>
+                idSet.has(c.id) ? { ...c, group } : c
+              ),
+              updatedAt: Date.now(),
+            }
+          }),
+        })
+      },
+
+      updateGroupDescription: (paletteId, groupId, description) => {
+        const { palettes } = get()
+        set({
+          palettes: palettes.map(p => {
+            if (p.id !== paletteId) return p
+            return {
+              ...p,
+              groups: { ...(p.groups || {}), [groupId]: description },
+              updatedAt: Date.now(),
+            }
           }),
         })
       },

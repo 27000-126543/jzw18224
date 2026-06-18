@@ -9,6 +9,23 @@ export interface PickedColor {
   name?: string
 }
 
+export type ColorGroupKey = 'brand' | 'semantic' | 'neutral' | 'gray' | 'custom'
+
+export interface ColorGroup {
+  id: ColorGroupKey
+  name: string
+  description: string
+  icon: string
+}
+
+export const DEFAULT_COLOR_GROUPS: ColorGroup[] = [
+  { id: 'brand', name: '品牌色', description: '', icon: '🎨' },
+  { id: 'semantic', name: '语义色', description: '成功、警告、错误、信息等功能色', icon: '✨' },
+  { id: 'neutral', name: '中性色', description: '主文字、次要文字等文本色', icon: '📝' },
+  { id: 'gray', name: '灰阶色', description: '背景、边框、分割线等灰阶', icon: '🌫️' },
+  { id: 'custom', name: '未分组', description: '暂未归类的颜色', icon: '📦' },
+]
+
 export interface ColorPalette {
   id: string
   name: string
@@ -16,6 +33,13 @@ export interface ColorPalette {
   colors: PaletteColor[]
   createdAt: number
   updatedAt: number
+  groups?: {
+    brand?: string
+    semantic?: string
+    neutral?: string
+    gray?: string
+    custom?: string
+  }
 }
 
 export interface PaletteColor {
@@ -25,6 +49,7 @@ export interface PaletteColor {
   note?: string
   addedAt: number
   sourceImage?: string
+  group?: ColorGroupKey
 }
 
 export interface ExtractedPalette {
