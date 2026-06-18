@@ -1,10 +1,15 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import {
   getAllFormats,
   formatRgbString,
   formatHslString,
   formatHsbString,
+  formatHsvString,
+  formatCmykString,
+  formatRgbaString,
+  formatHexString,
+  formatHex8String,
   generateComplementary,
   generateAnalogous,
   generateTriadic,
@@ -22,6 +27,14 @@ interface Props {
 }
 
 type SchemeType = 'complementary' | 'analogous' | 'triadic' | 'monochromatic' | 'shades'
+
+interface ColorFormatItem {
+  id: string
+  label: string
+  value: string
+  copyValue: string
+  hint?: string
+}
 
 export default function ColorPickerTab({ showToast }: Props) {
   const { currentColor, history, removeFromHistory, clearHistory, addToHistory, setCurrentColor } = useAppStore()
@@ -50,6 +63,37 @@ export default function ColorPickerTab({ showToast }: Props) {
     }
   }, [color, schemeType])
 
+  const colorFormats = useMemo((): ColorFormatItem[] => {
+    const hex = formatHexString(formats.hex)
+    const hexLower = formatHexString(formats.hex, true, false)
+    const hexNoHash = formatHexString(formats.hex, false)
+    const rgb = formatRgbString(formats.rgb)
+    const hsl = formatHslString(formats.hsl)
+    const hsb = formatHsbString(formats.hsb)
+    const hsv = formatHsvString(formats.hsb)
+    const cmyk = formatCmykString(formats.cmyk)
+    const rgba = formatRgbaString(formats.rgba)
+    const hex8 = formatHex8String(formats.hex, 1)
+
+    const rgbCss = `color: ${rgb};`
+    const hexCss = `color: ${hex};`
+
+    return [
+      { id: 'hex', label: 'HEX', value: hex, copyValue: hex, hint: '6位大写，带 #' },
+      { id: 'hex-lower', label: 'HEX (小写)', value: hexLower, copyValue: hexLower, hint: '6位小写，带 #' },
+      { id: 'hex-nohash', label: 'HEX (无 #)', value: hexNoHash, copyValue: hexNoHash, hint: '6位，无井号' },
+      { id: 'hex8', label: 'HEX8 (含Alpha)', value: hex8, copyValue: hex8, hint: '8位含透明度' },
+      { id: 'rgb', label: 'RGB', value: rgb, copyValue: rgb, hint: 'CSS rgb() 格式' },
+      { id: 'rgba', label: 'RGBA', value: rgba, copyValue: rgba, hint: 'CSS rgba() 格式' },
+      { id: 'hsl', label: 'HSL', value: hsl, copyValue: hsl, hint: 'CSS hsl() 格式' },
+      { id: 'hsb', label: 'HSB', value: hsb, copyValue: hsb, hint: '色相/饱和度/明度' },
+      { id: 'hsv', label: 'HSV', value: hsv, copyValue: hsv, hint: '同 HSB，另一命名' },
+      { id: 'cmyk', label: 'CMYK', value: cmyk, copyValue: cmyk, hint: '印刷四色模式' },
+      { id: 'rgb-values', label: 'RGB 数值', value: `${formats.rgb.r}, ${formats.rgb.g}, ${formats.rgb.b}`, copyValue: `${formats.rgb.r}, ${formats.rgb.g}, ${formats.rgb.b}`, hint: '纯数字，逗号分隔' },
+      { id: 'css-color', label: 'CSS 声明', value: hexCss, copyValue: hexCss, hint: '直接粘贴到样式表' },
+    ]
+  }, [formats])
+
   const handleStartPicker = async () => {
     try {
       const api = window.electronAPI
@@ -63,16 +107,16 @@ export default function ColorPickerTab({ showToast }: Props) {
     }
   }
 
-  const copyToClipboard = async (text: string, format: string) => {
+  const copyToClipboard = useCallback(async (text: string, format: string) => {
     try {
       await navigator.clipboard.writeText(text)
       setCopiedFormat(format)
-      showToast(`已复制 ${format} 值`, 'success')
+      showToast(`已复制 ${format}`, 'success')
       setTimeout(() => setCopiedFormat(null), 1500)
     } catch {
       showToast('复制失败', 'error')
     }
-  }
+  }, [showToast])
 
   const handleSchemeColorClick = (hex: string) => {
     const rgb = hexToRgb(hex)
@@ -176,95 +220,36 @@ export default function ColorPickerTab({ showToast }: Props) {
           </div>
 
           <h3 className="font-semibold mb-3" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            🎨 颜色格式转换
+            🎨 颜色格式转换 · 共 {colorFormats.length} 种
           </h3>
 
-          <div className="color-formats-grid">
-            <div className="color-format-item">
-              <div className="format-label">HEX</div>
-              <div className="format-value">
-                <span>{formats.hex}</span>
-                <button
-                  className={`copy-btn ${copiedFormat === 'HEX' ? 'copied' : ''}`}
-                  onClick={() => copyToClipboard(formats.hex, 'HEX')}
-                >
-                  {copiedFormat === 'HEX' ? '✓' : '复制'}
-                </button>
+          <div className="color-formats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            {colorFormats.map(item => (
+              <div
+                key={item.id}
+                className="color-format-item"
+                onClick={() => copyToClipboard(item.copyValue, item.label)}
+                style={{ cursor: 'pointer' }}
+                title={item.hint}
+              >
+                <div className="format-label">
+                  {item.label}
+                  {item.hint && <span style={{ marginLeft: '6px', fontWeight: 400, opacity: 0.6 }}>· {item.hint}</span>}
+                </div>
+                <div className="format-value">
+                  <span className="font-mono" style={{ fontSize: '12px' }}>{item.value}</span>
+                  <button
+                    className={`copy-btn ${copiedFormat === item.label ? 'copied' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      copyToClipboard(item.copyValue, item.label)
+                    }}
+                  >
+                    {copiedFormat === item.label ? '✓' : '复制'}
+                  </button>
+                </div>
               </div>
-            </div>
-
-            <div className="color-format-item">
-              <div className="format-label">RGB</div>
-              <div className="format-value">
-                <span>{formatRgbString(formats.rgb)}</span>
-                <button
-                  className={`copy-btn ${copiedFormat === 'RGB' ? 'copied' : ''}`}
-                  onClick={() => copyToClipboard(formatRgbString(formats.rgb), 'RGB')}
-                >
-                  {copiedFormat === 'RGB' ? '✓' : '复制'}
-                </button>
-              </div>
-            </div>
-
-            <div className="color-format-item">
-              <div className="format-label">HSL</div>
-              <div className="format-value">
-                <span>{formatHslString(formats.hsl)}</span>
-                <button
-                  className={`copy-btn ${copiedFormat === 'HSL' ? 'copied' : ''}`}
-                  onClick={() => copyToClipboard(formatHslString(formats.hsl), 'HSL')}
-                >
-                  {copiedFormat === 'HSL' ? '✓' : '复制'}
-                </button>
-              </div>
-            </div>
-
-            <div className="color-format-item">
-              <div className="format-label">HSB / HSV</div>
-              <div className="format-value">
-                <span>{formatHsbString(formats.hsb)}</span>
-                <button
-                  className={`copy-btn ${copiedFormat === 'HSB' ? 'copied' : ''}`}
-                  onClick={() => copyToClipboard(formatHsbString(formats.hsb), 'HSB')}
-                >
-                  {copiedFormat === 'HSB' ? '✓' : '复制'}
-                </button>
-              </div>
-            </div>
-
-            <div className="color-format-item">
-              <div className="format-label">CMYK</div>
-              <div className="format-value">
-                <span>
-                  cmyk({formats.cmyk.c}%, {formats.cmyk.m}%, {formats.cmyk.y}%, {formats.cmyk.k}%)
-                </span>
-                <button
-                  className={`copy-btn ${copiedFormat === 'CMYK' ? 'copied' : ''}`}
-                  onClick={() => copyToClipboard(
-                    `cmyk(${formats.cmyk.c}%, ${formats.cmyk.m}%, ${formats.cmyk.y}%, ${formats.cmyk.k}%)`,
-                    'CMYK'
-                  )}
-                >
-                  {copiedFormat === 'CMYK' ? '✓' : '复制'}
-                </button>
-              </div>
-            </div>
-
-            <div className="color-format-item">
-              <div className="format-label">RGBA (Alpha)</div>
-              <div className="format-value">
-                <span>rgba({formats.rgba.r}, {formats.rgba.g}, {formats.rgba.b}, 1)</span>
-                <button
-                  className={`copy-btn ${copiedFormat === 'RGBA' ? 'copied' : ''}`}
-                  onClick={() => copyToClipboard(
-                    `rgba(${formats.rgba.r}, ${formats.rgba.g}, ${formats.rgba.b}, 1)`,
-                    'RGBA'
-                  )}
-                >
-                  {copiedFormat === 'RGBA' ? '✓' : '复制'}
-                </button>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 

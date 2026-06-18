@@ -24,6 +24,16 @@ export interface PaletteColor {
   name?: string
   note?: string
   addedAt: number
+  sourceImage?: string
+}
+
+export interface ExtractedPalette {
+  id: string
+  name: string
+  sourceImage: string
+  sourceImageName: string
+  colors: string[]
+  extractedAt: number
 }
 
 export interface DisplayInfo {

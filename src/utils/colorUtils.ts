@@ -215,17 +215,39 @@ export const getAllFormats = (hex: string): ColorFormats => {
   }
 }
 
-export const formatRgbString = (rgb: RGB): string =>
-  `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`
+export const formatRgbString = (rgb: RGB, spaces: boolean = true): string =>
+  spaces ? `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})` : `rgb(${rgb.r},${rgb.g},${rgb.b})`
 
-export const formatRgbaString = (rgba: { r: number; g: number; b: number; a: number }): string =>
-  `rgba(${rgba.r}, ${rgba.g}, ${rgba.b}, ${rgba.a})`
+export const formatRgbaString = (rgba: { r: number; g: number; b: number; a: number }, spaces: boolean = true): string =>
+  spaces
+    ? `rgba(${rgba.r}, ${rgba.g}, ${rgba.b}, ${rgba.a})`
+    : `rgba(${rgba.r},${rgba.g},${rgba.b},${rgba.a})`
 
-export const formatHslString = (hsl: HSL): string =>
-  `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`
+export const formatHslString = (hsl: HSL, spaces: boolean = true): string =>
+  spaces ? `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)` : `hsl(${hsl.h},${hsl.s}%,${hsl.l}%)`
 
-export const formatHsbString = (hsb: HSB): string =>
-  `hsl(${hsb.h}, ${hsb.s}%, ${hsb.b}%)`
+export const formatHsbString = (hsb: HSB, spaces: boolean = true): string =>
+  spaces ? `hsb(${hsb.h}, ${hsb.s}%, ${hsb.b}%)` : `hsb(${hsb.h},${hsb.s}%,${hsb.b}%)`
+
+export const formatHsvString = (hsb: HSB, spaces: boolean = true): string =>
+  spaces ? `hsv(${hsb.h}, ${hsb.s}%, ${hsb.b}%)` : `hsv(${hsb.h},${hsb.s}%,${hsb.b}%)`
+
+export const formatCmykString = (cmyk: { c: number; m: number; y: number; k: number }, spaces: boolean = true): string =>
+  spaces
+    ? `cmyk(${cmyk.c}%, ${cmyk.m}%, ${cmyk.y}%, ${cmyk.k}%)`
+    : `cmyk(${cmyk.c}%,${cmyk.m}%,${cmyk.y}%,${cmyk.k}%)`
+
+export const formatHexString = (hex: string, withHash: boolean = true, uppercase: boolean = true): string => {
+  let clean = hex.replace('#', '')
+  clean = uppercase ? clean.toUpperCase() : clean.toLowerCase()
+  return withHash ? '#' + clean : clean
+}
+
+export const formatHex8String = (hex: string, alpha: number = 1, withHash: boolean = true): string => {
+  const alphaHex = Math.round(alpha * 255).toString(16).padStart(2, '0')
+  const clean = hex.replace('#', '')
+  return withHash ? `#${clean}${alphaHex}`.toUpperCase() : `${clean}${alphaHex}`.toUpperCase()
+}
 
 export const isValidHex = (hex: string): boolean => {
   const clean = hex.replace('#', '').trim()

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { hexToRgb, getContrastRatio } from '../utils/colorUtils'
 import type { PaletteColor } from '../types'
@@ -19,12 +19,17 @@ export default function PaletteTab({ showToast }: Props) {
     deletePalette,
     updatePalette,
     addColorToPalette,
+    addColorsToPalette,
     removeColorFromPalette,
     updateColorInPalette,
+    reorderColorsInPalette,
+    duplicateColorInPalette,
   } = useAppStore()
 
   const [modal, setModal] = useState<ModalType>(null)
   const [editingColorId, setEditingColorId] = useState<string | null>(null)
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
 
   const [newPaletteName, setNewPaletteName] = useState('')
   const [newPaletteDesc, setNewPaletteDesc] = useState('')
@@ -34,9 +39,10 @@ export default function PaletteTab({ showToast }: Props) {
   const [renameName, setRenameName] = useState('')
 
   const activePalette = palettes.find(p => p.id === activePaletteId)
+  const activePaletteRef = useRef(activePalette)
+  activePaletteRef.current = activePalette
 
   const textColorForBg = (bgHex: string) => {
-    const rgb = hexToRgb(bgHex)
     const contrastWhite = getContrastRatio(bgHex, '#FFFFFF')
     return contrastWhite >= 4.5 ? '#FFFFFF' : '#111111'
   }
@@ -123,6 +129,55 @@ export default function PaletteTab({ showToast }: Props) {
     showToast(`已复制 ${hex}`, 'success')
   }
 
+  const handleDragStart = (index: number) => {
+    setDraggedIndex(index)
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    setDragOverIndex(index)
+  }
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null)
+  }
+
+  const handleDrop = (toIndex: number) => {
+    if (draggedIndex === null || !activePalette) return
+    if (draggedIndex !== toIndex) {
+      reorderColorsInPalette(activePalette.id, draggedIndex, toIndex)
+    }
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }
+
+  const addCurrentColor = () => {
+    if (!activePalette || !currentColor) {
+      showToast('请先选择一个调色板', 'error')
+      return
+    }
+    addColorToPalette(activePalette.id, currentColor.hex)
+    showToast(`已添加 ${currentColor.hex} 到「${activePalette.name}」`, 'success')
+  }
+
+  const handleDuplicate = (colorId: string) => {
+    if (!activePalette) return
+    duplicateColorInPalette(activePalette.id, colorId)
+    showToast('已复制颜色', 'success')
+  }
+
+  const copyAllHex = () => {
+    if (!activePalette || activePalette.colors.length === 0) return
+    const hexes = activePalette.colors.map(c => c.hex).join('\n')
+    navigator.clipboard.writeText(hexes)
+    showToast(`已复制 ${activePalette.colors.length} 个颜色值`, 'success')
+  }
+
   return (
     <div className="two-column">
       <aside className="sidebar">
@@ -150,6 +205,7 @@ export default function PaletteTab({ showToast }: Props) {
                   key={p.id}
                   className={`palette-list-item ${activePaletteId === p.id ? 'active' : ''}`}
                   onClick={() => setActivePalette(p.id)}
+                  title={p.description}
                 >
                   <div className="flex items-center gap-2" style={{ flex: 1, minWidth: 0 }}>
                     <div className="palette-swatches">
@@ -184,6 +240,28 @@ export default function PaletteTab({ showToast }: Props) {
             </div>
           )}
         </div>
+
+        {activePalette && (
+          <div
+            style={{
+              marginTop: 'auto',
+              padding: '12px',
+              background: 'rgba(139, 92, 246, 0.1)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <div className="text-xs text-muted mb-2">💡 快捷操作</div>
+            <div className="flex flex-col gap-2">
+              <button className="btn btn-secondary btn-sm w-full" onClick={addCurrentColor}>
+                ➕ 添加当前色到调色板
+              </button>
+              <button className="btn btn-secondary btn-sm w-full" onClick={copyAllHex}>
+                📋 复制全部 HEX
+              </button>
+            </div>
+          </div>
+        )}
       </aside>
 
       <div className="content-area">
@@ -213,16 +291,19 @@ export default function PaletteTab({ showToast }: Props) {
                 {activePalette.description && (
                   <p className="text-sm text-muted">{activePalette.description}</p>
                 )}
+                <p className="text-xs text-muted mt-1">
+                  💡 提示：拖拽颜色卡片可调整顺序
+                </p>
               </div>
               <div className="flex gap-2">
                 <button className="btn btn-secondary btn-sm" onClick={openRenamePalette}>
-                  ✏️ 重命名
+                  ✏️ 编辑
                 </button>
                 <button className="btn btn-primary btn-sm" onClick={openAddColor}>
                   + 添加颜色
                 </button>
                 <button className="btn btn-danger btn-sm" onClick={handleDeletePalette}>
-                  🗑️ 删除
+                  🗑️
                 </button>
               </div>
             </div>
@@ -243,29 +324,55 @@ export default function PaletteTab({ showToast }: Props) {
               </div>
             ) : (
               <div className="palette-colors-grid">
-                {activePalette.colors.map(c => (
-                  <div key={c.id} className="palette-color-card">
+                {activePalette.colors.map((color: PaletteColor, index: number) => (
+                  <div
+                    key={color.id}
+                    className="palette-color-card"
+                    draggable
+                    onDragStart={() => handleDragStart(index)}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={() => handleDrop(index)}
+                    onDragEnd={handleDragEnd}
+                    style={{
+                      transform: draggedIndex === index ? 'scale(0.95) rotate(2deg)' : 'none',
+                      opacity: draggedIndex === index ? 0.6 : 1,
+                      boxShadow: dragOverIndex === index && draggedIndex !== index
+                        ? '0 0 0 2px var(--accent-primary), var(--shadow-md)'
+                        : undefined,
+                      transition: 'all 0.15s ease',
+                      cursor: draggedIndex !== null ? 'grabbing' : 'grab',
+                    }}
+                  >
                     <div
                       className="palette-color-preview"
                       style={{
-                        background: c.hex,
-                        color: textColorForBg(c.hex),
+                        background: color.hex,
+                        color: textColorForBg(color.hex),
                       }}
                     >
                       <div className="palette-color-actions">
                         <button
                           className="icon-btn"
-                          style={{ color: textColorForBg(c.hex) }}
-                          onClick={() => openEditColor(c.id)}
+                          style={{ color: textColorForBg(color.hex) }}
+                          onClick={() => handleDuplicate(color.id)}
+                          title="复制颜色"
+                        >
+                          ⎘
+                        </button>
+                        <button
+                          className="icon-btn"
+                          style={{ color: textColorForBg(color.hex) }}
+                          onClick={() => openEditColor(color.id)}
                           title="编辑"
                         >
                           ✏️
                         </button>
                         <button
                           className="icon-btn"
-                          style={{ color: textColorForBg(c.hex) }}
+                          style={{ color: textColorForBg(color.hex) }}
                           onClick={() => {
-                            removeColorFromPalette(activePalette.id, c.id)
+                            removeColorFromPalette(activePalette.id, color.id)
                             showToast('已移除颜色', 'info')
                           }}
                           title="删除"
@@ -273,13 +380,37 @@ export default function PaletteTab({ showToast }: Props) {
                           🗑️
                         </button>
                       </div>
+
+                      <div
+                        style={{
+                          position: 'absolute',
+                          bottom: '10px',
+                          left: '12px',
+                          fontSize: '11px',
+                          fontFamily: 'var(--font-mono)',
+                          opacity: 0.9,
+                        }}
+                      >
+                        #{index + 1}
+                      </div>
                     </div>
-                    <div className="palette-color-body" onClick={() => copyColor(c.hex)} style={{ cursor: 'pointer' }}>
-                      <div className="palette-color-name">{c.name || '未命名颜色'}</div>
-                      <div className="palette-color-hex">{c.hex}</div>
-                      {c.note && (
+
+                    <div
+                      className="palette-color-body"
+                      onClick={() => copyColor(color.hex)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <div
+                        className="palette-color-name"
+                        onDoubleClick={() => openEditColor(color.id)}
+                        title="双击编辑"
+                      >
+                        {color.name || '未命名颜色'}
+                      </div>
+                      <div className="palette-color-hex">{color.hex}</div>
+                      {color.note && (
                         <div className="text-xs text-muted mt-2" style={{ lineHeight: 1.4 }}>
-                          💡 {c.note}
+                          💡 {color.note}
                         </div>
                       )}
                     </div>
@@ -300,7 +431,7 @@ export default function PaletteTab({ showToast }: Props) {
             <div className="modal-header">
               <h3 className="modal-title">
                 {modal === 'createPalette' && '📦 新建调色板'}
-                {modal === 'renamePalette' && '✏️ 重命名调色板'}
+                {modal === 'renamePalette' && '✏️ 编辑调色板'}
                 {modal === 'addColor' && '➕ 添加颜色'}
                 {modal === 'editColor' && '✏️ 编辑颜色'}
               </h3>
@@ -311,31 +442,43 @@ export default function PaletteTab({ showToast }: Props) {
             </div>
             <div className="modal-body">
               {(modal === 'createPalette' || modal === 'renamePalette') && (
-                <div className="form-group">
-                  <label className="form-label">名称</label>
-                  <input
-                    className="form-input"
-                    placeholder="我的配色方案"
-                    value={modal === 'createPalette' ? newPaletteName : renameName}
-                    onChange={e => modal === 'createPalette'
-                      ? setNewPaletteName(e.target.value)
-                      : setRenameName(e.target.value)
-                    }
-                    autoFocus
-                  />
-                </div>
-              )}
-
-              {modal === 'createPalette' && (
-                <div className="form-group">
-                  <label className="form-label">描述（可选）</label>
-                  <textarea
-                    className="form-input form-textarea"
-                    placeholder="此调色板的用途说明..."
-                    value={newPaletteDesc}
-                    onChange={e => setNewPaletteDesc(e.target.value)}
-                  />
-                </div>
+                <>
+                  <div className="form-group">
+                    <label className="form-label">名称</label>
+                    <input
+                      className="form-input"
+                      placeholder="我的配色方案"
+                      value={modal === 'createPalette' ? newPaletteName : renameName}
+                      onChange={e => modal === 'createPalette'
+                        ? setNewPaletteName(e.target.value)
+                        : setRenameName(e.target.value)
+                      }
+                      autoFocus
+                    />
+                  </div>
+                  {modal === 'createPalette' && (
+                    <div className="form-group">
+                      <label className="form-label">描述（可选）</label>
+                      <textarea
+                        className="form-input form-textarea"
+                        placeholder="此调色板的用途说明..."
+                        value={newPaletteDesc}
+                        onChange={e => setNewPaletteDesc(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  {modal === 'renamePalette' && activePalette && (
+                    <div className="form-group">
+                      <label className="form-label">描述（可选）</label>
+                      <textarea
+                        className="form-input form-textarea"
+                        placeholder="此调色板的用途说明..."
+                        value={activePalette.description || ''}
+                        onChange={e => updatePalette(activePalette.id, { description: e.target.value })}
+                      />
+                    </div>
+                  )}
+                </>
               )}
 
               {(modal === 'addColor' || modal === 'editColor') && (
@@ -359,10 +502,15 @@ export default function PaletteTab({ showToast }: Props) {
                     </div>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">颜色名称（可选）</label>
+                    <label className="form-label">
+                      颜色名称（可选）
+                      <span className="text-xs text-muted" style={{ marginLeft: '8px' }}>
+                        例如：主色 / Brand-500 / 背景色
+                      </span>
+                    </label>
                     <input
                       className="form-input"
-                      placeholder="主背景色 / Primary / Brand 500..."
+                      placeholder="primary / brand-500 / 主背景色..."
                       value={newColorName}
                       onChange={e => setNewColorName(e.target.value)}
                     />
@@ -371,7 +519,7 @@ export default function PaletteTab({ showToast }: Props) {
                     <label className="form-label">备注（可选）</label>
                     <textarea
                       className="form-input form-textarea"
-                      placeholder="用于哪些场景、搭配建议等..."
+                      placeholder="使用场景、搭配建议、来源说明等..."
                       value={newColorNote}
                       onChange={e => setNewColorNote(e.target.value)}
                     />

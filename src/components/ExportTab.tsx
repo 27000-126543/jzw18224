@@ -1,13 +1,14 @@
 import { useState, useMemo } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import type { ColorPalette, PaletteColor } from '../types'
+import { hexToRgb } from '../utils/colorUtils'
 import { toKebabCase } from '../utils/stringUtils'
 
 interface Props {
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void
 }
 
-type ExportFormat = 'css' | 'scss' | 'svg' | 'json' | 'tailwind'
+type ExportFormat = 'css' | 'css-classes' | 'scss' | 'less' | 'stylus' | 'tailwind' | 'svg' | 'json'
 
 const slug = (s: string) =>
   s.toLowerCase()
@@ -15,15 +16,16 @@ const slug = (s: string) =>
     .trim()
     .replace(/\s+/g, '-')
 
-const generateCss = (palette: ColorPalette, prefix: string = 'color'): string => {
-  const varName = (name?: string, hex?: string, idx?: number) => {
-    if (name) return toKebabCase(name)
-    return `${slug(palette.name)}-${idx ?? 0}`
-  }
+const getVarName = (paletteName: string, colorName?: string, idx?: number): string => {
+  if (colorName) return toKebabCase(colorName).replace(/[^a-z0-9-]/g, '')
+  return `color-${(idx ?? 0) + 1}`
+}
 
+const generateCss = (palette: ColorPalette, prefix: string = 'color'): string => {
   const lines: string[] = []
   lines.push(`/* ========================================`)
   lines.push(`   Palette: ${palette.name}`)
+  if (palette.description) lines.push(`   Description: ${palette.description}`)
   lines.push(`   Generated: ${new Date().toISOString()}`)
   lines.push(`   Colors: ${palette.colors.length}`)
   lines.push(`   ======================================== */`)
@@ -31,26 +33,69 @@ const generateCss = (palette: ColorPalette, prefix: string = 'color'): string =>
   lines.push(':root {')
 
   palette.colors.forEach((c: PaletteColor, i: number) => {
-    const name = varName(c.name, c.hex, i)
-    lines.push(`  --${prefix}-${name}: ${c.hex};`)
+    const name = getVarName(palette.name, c.name, i)
     if (c.note) lines.push(`  /* ${c.note} */`)
+    lines.push(`  --${prefix}-${name}: ${c.hex};`)
   })
 
   lines.push('}')
   lines.push('')
   lines.push('/* Usage example:')
-  lines.push(`   .text-primary { color: var(--${prefix}-${varName(palette.colors[0]?.name, palette.colors[0]?.hex, 0)}); }`)
+  lines.push(`   .text-primary { color: var(--${prefix}-${getVarName(palette.name, palette.colors[0]?.name, 0)}); }`)
   lines.push('*/')
 
   return lines.join('\n')
 }
 
-const generateScss = (palette: ColorPalette): string => {
-  const varName = (name?: string, idx?: number) => {
-    if (name) return toKebabCase(name)
-    return `${slug(palette.name)}-${idx ?? 0}`
-  }
+const generateCssClasses = (palette: ColorPalette, prefix: string = 'color'): string => {
+  const lines: string[] = []
+  lines.push(`/* ========================================`)
+  lines.push(`   Palette: ${palette.name}`)
+  lines.push(`   CSS Utility Classes`)
+  lines.push(`   ======================================== */`)
+  lines.push('')
 
+  palette.colors.forEach((c: PaletteColor, i: number) => {
+    const name = getVarName(palette.name, c.name, i)
+    lines.push(`/* ${c.hex}${c.name ? ` - ${c.name}` : ''} */`)
+    lines.push(`.bg-${prefix}-${name} { background-color: ${c.hex}; }`)
+    lines.push(`.text-${prefix}-${name} { color: ${c.hex}; }`)
+    lines.push(`.border-${prefix}-${name} { border-color: ${c.hex}; }`)
+    lines.push('')
+  })
+
+  return lines.join('\n')
+}
+
+const generateScss = (palette: ColorPalette): string => {
+  const lines: string[] = []
+  lines.push(`// ========================================`)
+  lines.push(`// Palette: ${palette.name}`)
+  if (palette.description) lines.push(`// Description: ${palette.description}`)
+  lines.push(`// Generated: ${new Date().toISOString()}`)
+  lines.push(`// ========================================`)
+  lines.push('')
+
+  palette.colors.forEach((c: PaletteColor, i: number) => {
+    const name = getVarName(palette.name, c.name, i)
+    lines.push(`$${name}: ${c.hex};${c.note ? ` // ${c.note}` : ''}`)
+  })
+
+  lines.push('')
+  lines.push(`// Color map for map-get()`)
+  lines.push(`$${slug(palette.name)}-colors: (`)
+  palette.colors.forEach((c: PaletteColor, i: number) => {
+    const name = getVarName(palette.name, c.name, i)
+    lines.push(`  '${name}': $${name}${i < palette.colors.length - 1 ? ',' : ''}`)
+  })
+  lines.push(');')
+  lines.push('')
+  lines.push(`// Usage: color: map-get($${slug(palette.name)}-colors, '${getVarName(palette.name, palette.colors[0]?.name, 0)}');`)
+
+  return lines.join('\n')
+}
+
+const generateLess = (palette: ColorPalette): string => {
   const lines: string[] = []
   lines.push(`// ========================================`)
   lines.push(`// Palette: ${palette.name}`)
@@ -59,24 +104,38 @@ const generateScss = (palette: ColorPalette): string => {
   lines.push('')
 
   palette.colors.forEach((c: PaletteColor, i: number) => {
-    const name = varName(c.name, i)
-    lines.push(`$${name}: ${c.hex};${c.note ? ` // ${c.note}` : ''}`)
+    const name = getVarName(palette.name, c.name, i)
+    lines.push(`@${name}: ${c.hex};${c.note ? ` // ${c.note}` : ''}`)
   })
 
   lines.push('')
-  lines.push(`$${slug(palette.name)}-map: (`)
+  lines.push(`// Usage: color: @${getVarName(palette.name, palette.colors[0]?.name, 0)};`)
+
+  return lines.join('\n')
+}
+
+const generateStylus = (palette: ColorPalette): string => {
+  const lines: string[] = []
+  lines.push(`// ========================================`)
+  lines.push(`// Palette: ${palette.name}`)
+  lines.push(`// Generated: ${new Date().toISOString()}`)
+  lines.push(`// ========================================`)
+  lines.push('')
+
   palette.colors.forEach((c: PaletteColor, i: number) => {
-    const name = varName(c.name, i)
-    lines.push(`  '${name}': $${name}${i < palette.colors.length - 1 ? ',' : ''}`)
+    const name = getVarName(palette.name, c.name, i)
+    lines.push(`${name} = ${c.hex}${c.note ? ` // ${c.note}` : ''}`)
   })
-  lines.push(');')
+
+  lines.push('')
+  lines.push(`// Usage: color ${getVarName(palette.name, palette.colors[0]?.name, 0)}`)
 
   return lines.join('\n')
 }
 
 const generateSvg = (palette: ColorPalette): string => {
   const swatchW = 200
-  const swatchH = 120
+  const swatchH = 140
   const gap = 16
   const perRow = 4
   const rows = Math.ceil(palette.colors.length / perRow)
@@ -131,16 +190,18 @@ const generateJson = (palette: ColorPalette): string => {
     createdAt: new Date(palette.createdAt).toISOString(),
     updatedAt: new Date(palette.updatedAt).toISOString(),
     count: palette.colors.length,
-    colors: palette.colors.map((c: PaletteColor, i: number) => ({
-      name: c.name || `color-${i + 1}`,
-      hex: c.hex,
-      rgb: {
-        r: parseInt(c.hex.slice(1, 3), 16),
-        g: parseInt(c.hex.slice(3, 5), 16),
-        b: parseInt(c.hex.slice(5, 7), 16),
-      },
-      note: c.note || null,
-    })),
+    colors: palette.colors.map((c: PaletteColor, i: number) => {
+      const rgb = hexToRgb(c.hex)
+      return {
+        name: c.name || `color-${i + 1}`,
+        hex: c.hex,
+        rgb: rgb ? `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})` : '',
+        rgbValues: rgb,
+        note: c.note || null,
+        sourceImage: c.sourceImage || null,
+        addedAt: new Date(c.addedAt).toISOString(),
+      }
+    }),
   }
   return JSON.stringify(data, null, 2)
 }
@@ -148,11 +209,14 @@ const generateJson = (palette: ColorPalette): string => {
 const generateTailwind = (palette: ColorPalette): string => {
   const name = (n?: string, i?: number) => {
     if (n) return toKebabCase(n).replace(/[^a-z0-9-]/g, '')
-    return `color-${i! + 1}`
+    return `color-${(i ?? 0) + 1}`
   }
 
   const lines: string[] = []
-  lines.push(`// tailwind.config.js snippet for: ${palette.name}`)
+  lines.push(`// tailwind.config.js - ${palette.name}`)
+  lines.push(`// Generated: ${new Date().toISOString()}`)
+  lines.push('')
+  lines.push("/** @type {import('tailwindcss').Config} */")
   lines.push('module.exports = {')
   lines.push('  theme: {')
   lines.push('    extend: {')
@@ -171,7 +235,10 @@ const generateTailwind = (palette: ColorPalette): string => {
   lines.push('  }')
   lines.push('}')
   lines.push('')
-  lines.push(`// Usage: bg-${slug(palette.name)}-${name(palette.colors[0]?.name, 0)}`)
+  lines.push(`// Usage examples:`)
+  lines.push(`//   bg-${slug(palette.name)}-${name(palette.colors[0]?.name, 0)}`)
+  lines.push(`//   text-${slug(palette.name)}-${name(palette.colors[0]?.name, 0)}`)
+  lines.push(`//   border-${slug(palette.name)}-${name(palette.colors[0]?.name, 0)}`)
 
   return lines.join('\n')
 }
@@ -180,6 +247,7 @@ export default function ExportTab({ showToast }: Props) {
   const { palettes, activePaletteId, setActivePalette } = useAppStore()
   const [format, setFormat] = useState<ExportFormat>('css')
   const [cssPrefix, setCssPrefix] = useState('color')
+  const [copied, setCopied] = useState(false)
 
   const activePalette = palettes.find(p => p.id === activePaletteId) || palettes[0]
 
@@ -188,10 +256,13 @@ export default function ExportTab({ showToast }: Props) {
 
     switch (format) {
       case 'css': return generateCss(activePalette, cssPrefix)
+      case 'css-classes': return generateCssClasses(activePalette, cssPrefix)
       case 'scss': return generateScss(activePalette)
+      case 'less': return generateLess(activePalette)
+      case 'stylus': return generateStylus(activePalette)
+      case 'tailwind': return generateTailwind(activePalette)
       case 'svg': return generateSvg(activePalette)
       case 'json': return generateJson(activePalette)
-      case 'tailwind': return generateTailwind(activePalette)
       default: return ''
     }
   }, [activePalette, format, cssPrefix])
@@ -199,33 +270,39 @@ export default function ExportTab({ showToast }: Props) {
   const copyToClipboard = async () => {
     if (!activePalette) return
     await navigator.clipboard.writeText(exportContent)
-    showToast(`已复制 ${format.toUpperCase()} 代码`, 'success')
+    setCopied(true)
+    showToast(`已复制 ${formatLabels[format]} 代码`, 'success')
+    setTimeout(() => setCopied(false), 2000)
   }
 
   const exportFile = async () => {
     if (!activePalette) return
     const api = window.electronAPI
-    if (!api) return
-
-    const extMap: Record<ExportFormat, string> = {
-      css: 'css',
-      scss: 'scss',
-      svg: 'svg',
-      json: 'json',
-      tailwind: 'js',
+    if (!api) {
+      const blob = new Blob([exportContent], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = getFileName(activePalette, format)
+      a.click()
+      URL.revokeObjectURL(url)
+      showToast('文件已下载', 'success')
+      return
     }
 
     const filterMap: Record<ExportFormat, { name: string; extensions: string[] }> = {
       css: { name: 'CSS', extensions: ['css'] },
+      'css-classes': { name: 'CSS', extensions: ['css'] },
       scss: { name: 'SCSS', extensions: ['scss'] },
+      less: { name: 'LESS', extensions: ['less'] },
+      stylus: { name: 'Stylus', extensions: ['styl'] },
+      tailwind: { name: 'JavaScript', extensions: ['js'] },
       svg: { name: 'SVG', extensions: ['svg'] },
       json: { name: 'JSON', extensions: ['json'] },
-      tailwind: { name: 'JavaScript', extensions: ['js'] },
     }
 
-    const name = slug(activePalette.name) || 'palette'
     const result = await api.dialog.saveFile({
-      defaultName: `${name}.${extMap[format]}`,
+      defaultName: getFileName(activePalette, format),
       content: exportContent,
       filters: [filterMap[format]],
     })
@@ -235,13 +312,53 @@ export default function ExportTab({ showToast }: Props) {
     }
   }
 
+  const getFileName = (palette: ColorPalette, fmt: ExportFormat): string => {
+    const name = slug(palette.name) || 'palette'
+    const extMap: Record<ExportFormat, string> = {
+      css: 'css',
+      'css-classes': 'css',
+      scss: 'scss',
+      less: 'less',
+      stylus: 'styl',
+      tailwind: 'js',
+      svg: 'svg',
+      json: 'json',
+    }
+    return `${name}-${fmt}.${extMap[fmt]}`
+  }
+
+  const formatLabels: Record<ExportFormat, string> = {
+    css: 'CSS Variables',
+    'css-classes': 'CSS Classes',
+    scss: 'SCSS',
+    less: 'Less',
+    stylus: 'Stylus',
+    tailwind: 'Tailwind',
+    svg: 'SVG',
+    json: 'JSON',
+  }
+
   const formatOptions: { id: ExportFormat; label: string; icon: string }[] = [
-    { id: 'css', label: 'CSS Variables', icon: '🎨' },
-    { id: 'scss', label: 'SCSS Variables', icon: '💅' },
-    { id: 'tailwind', label: 'Tailwind Config', icon: '🌊' },
-    { id: 'svg', label: 'SVG Swatches', icon: '🖼️' },
-    { id: 'json', label: 'JSON Data', icon: '📄' },
+    { id: 'css', label: 'CSS 变量', icon: '🎨' },
+    { id: 'css-classes', label: 'CSS 类', icon: '✨' },
+    { id: 'scss', label: 'SCSS', icon: '💅' },
+    { id: 'less', label: 'Less', icon: '�' },
+    { id: 'stylus', label: 'Stylus', icon: '✒️' },
+    { id: 'tailwind', label: 'Tailwind', icon: '🌊' },
+    { id: 'svg', label: 'SVG 色板', icon: '🖼️' },
+    { id: 'json', label: 'JSON', icon: '📄' },
   ]
+
+  const formatDescription: Record<ExportFormat, string> = {
+    css: '现代 CSS 自定义属性，适用于所有现代浏览器，通过 var() 引用',
+    'css-classes': '开箱即用的 CSS 工具类，直接在 HTML 中使用 class 名称',
+    scss: 'Sass/SCSS 变量和颜色 Map，支持 map-get() 函数访问',
+    less: 'Less 预处理器变量，兼容 Less.js 构建环境',
+    stylus: 'Stylus 变量语法，简洁的缩进式风格',
+    tailwind: 'Tailwind CSS 配置片段，可直接合并到 tailwind.config.js',
+    svg: '可视化 SVG 色板文件，可嵌入设计稿或在线预览',
+    json: '结构化 JSON 数据，适合程序读取和跨工具使用',
+  }
 
   return (
     <div>
@@ -274,9 +391,9 @@ export default function ExportTab({ showToast }: Props) {
             )}
           </div>
 
-          {format === 'css' && (
+          {(format === 'css' || format === 'css-classes') && (
             <div className="form-group">
-              <label className="form-label">CSS 变量前缀</label>
+              <label className="form-label">CSS 变量 / 类名 前缀</label>
               <input
                 className="form-input font-mono"
                 placeholder="color"
@@ -284,13 +401,13 @@ export default function ExportTab({ showToast }: Props) {
                 onChange={e => setCssPrefix(e.target.value)}
               />
               <p className="text-xs text-muted mt-2">
-                例: <code className="font-mono">--{cssPrefix}-primary</code>
+                例: <code className="font-mono">--{cssPrefix}-primary</code> / <code className="font-mono">.bg-{cssPrefix}-primary</code>
               </p>
             </div>
           )}
         </div>
 
-        <div className="export-tabs">
+        <div className="export-tabs" style={{ flexWrap: 'wrap' }}>
           {formatOptions.map(opt => (
             <button
               key={opt.id}
@@ -303,17 +420,40 @@ export default function ExportTab({ showToast }: Props) {
           ))}
         </div>
 
-        <div className="code-preview" style={{ whiteSpace: format === 'svg' ? 'pre' : 'pre-wrap' }}>
+        {activePalette && (
+          <div
+            className="text-sm text-muted mb-3"
+            style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)' }}
+          >
+            💡 {formatDescription[format]}
+          </div>
+        )}
+
+        <div
+          className="code-preview"
+          style={{
+            whiteSpace: format === 'svg' ? 'pre' : 'pre-wrap',
+            position: 'relative',
+          }}
+        >
           {exportContent}
         </div>
 
         <div className="flex gap-3 mt-5">
           <button className="btn btn-primary" onClick={copyToClipboard}>
-            📋 复制代码
+            {copied ? '✅ 已复制' : '📋 复制代码'}
           </button>
           <button className="btn btn-secondary" onClick={exportFile}>
             💾 导出为文件
           </button>
+          {activePalette && (
+            <div
+              className="text-sm text-muted"
+              style={{ alignSelf: 'center', marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '11px' }}
+            >
+              文件名: {getFileName(activePalette, format)}
+            </div>
+          )}
         </div>
       </div>
 
@@ -348,7 +488,7 @@ export default function ExportTab({ showToast }: Props) {
                       cursor: 'pointer',
                       transition: 'transform 0.2s',
                     }}
-                    title={`${c.hex}${c.name ? ` - ${c.name}` : ''}`}
+                    title={`${c.hex}${c.name ? ` - ${c.name}` : ''}${c.sourceImage ? ` (来源: ${c.sourceImage})` : ''}`}
                     onClick={async () => {
                       await navigator.clipboard.writeText(c.hex)
                       showToast(`已复制 ${c.hex}`, 'success')
@@ -361,14 +501,16 @@ export default function ExportTab({ showToast }: Props) {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border-light)' }}>
+                      <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>#</th>
                       <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>色值</th>
                       <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>名称</th>
                       <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>HEX</th>
                       <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>备注</th>
+                      <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>来源</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {activePalette.colors.map((c: PaletteColor) => (
+                    {activePalette.colors.map((c: PaletteColor, idx: number) => (
                       <tr
                         key={c.id}
                         style={{
@@ -380,6 +522,9 @@ export default function ExportTab({ showToast }: Props) {
                           showToast(`已复制 ${c.hex}`, 'success')
                         }}
                       >
+                        <td style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                          {idx + 1}
+                        </td>
                         <td style={{ padding: '10px 12px' }}>
                           <div
                             style={{
@@ -397,8 +542,11 @@ export default function ExportTab({ showToast }: Props) {
                         <td style={{ padding: '10px 12px' }}>
                           <code className="font-mono" style={{ fontSize: '12px' }}>{c.hex}</code>
                         </td>
-                        <td style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-muted)', maxWidth: '300px' }}>
+                        <td style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-muted)', maxWidth: '250px' }}>
                           {c.note || '—'}
+                        </td>
+                        <td style={{ padding: '10px 12px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                          {c.sourceImage || '—'}
                         </td>
                       </tr>
                     ))}
@@ -415,28 +563,31 @@ export default function ExportTab({ showToast }: Props) {
           <span className="card-title-icon">📖</span>
           格式说明
         </h2>
-        <div className="grid-3" style={{ fontSize: '13px' }}>
-          <div style={{ background: 'var(--bg-secondary)', padding: '16px', borderRadius: 'var(--radius-md)' }}>
-            <h4 className="font-semibold mb-2">🎨 CSS Variables</h4>
-            <p className="text-muted mb-3">现代 CSS 自定义属性，适用于所有现代浏览器。</p>
-            <code className="font-mono text-xs text-muted">
-              --color-primary: #8B5CF6;
-            </code>
-          </div>
-          <div style={{ background: 'var(--bg-secondary)', padding: '16px', borderRadius: 'var(--radius-md)' }}>
-            <h4 className="font-semibold mb-2">💅 SCSS Variables</h4>
-            <p className="text-muted mb-3">Sass/SCSS 预处理器变量，包含 map 数据结构。</p>
-            <code className="font-mono text-xs text-muted">
-              $primary: #8B5CF6;
-            </code>
-          </div>
-          <div style={{ background: 'var(--bg-secondary)', padding: '16px', borderRadius: 'var(--radius-md)' }}>
-            <h4 className="font-semibold mb-2">🖼️ SVG Swatches</h4>
-            <p className="text-muted mb-3">可视化色板文件，可嵌入设计稿或在线查看。</p>
-            <code className="font-mono text-xs text-muted">
-              矢量图形格式
-            </code>
-          </div>
+        <div className="grid-4" style={{ fontSize: '13px' }}>
+          {[
+            { icon: '🎨', title: 'CSS Variables', desc: '现代 CSS 自定义属性', code: '--color-primary: #8B5CF6;' },
+            { icon: '✨', title: 'CSS Classes', desc: '开箱即用的工具类', code: '.text-primary { color: ... }' },
+            { icon: '💅', title: 'SCSS', desc: 'Sass 预处理器变量', code: '$primary: #8B5CF6;' },
+            { icon: '🌊', title: 'Tailwind', desc: 'Tailwind 配置片段', code: "'primary': '#8B5CF6'" },
+          ].map(item => (
+            <div
+              key={item.title}
+              style={{
+                background: 'var(--bg-secondary)',
+                padding: '16px',
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span>{item.icon}</span>
+                <h4 className="font-semibold">{item.title}</h4>
+              </div>
+              <p className="text-muted mb-3" style={{ fontSize: '12px' }}>{item.desc}</p>
+              <code className="font-mono text-xs text-muted">
+                {item.code}
+              </code>
+            </div>
+          ))}
         </div>
       </div>
     </div>
